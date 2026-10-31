@@ -1,12 +1,18 @@
 import Foundation
 import Observation
 
+enum RemoteControlMode: String, Identifiable {
+    case eyesFree, cursor
+    var id: String { rawValue }
+}
+
 @MainActor
 @Observable
 final class AppModel: TVDriverDelegate {
     private(set) var devices: [TVDevice] = DeviceStore.load()
     private(set) var currentID: String? = DeviceStore.currentID
     private(set) var state: ConnectionState = .idle
+    private(set) var supportsCursor = false
     private(set) var installedApps: [TVApp]?
     /// True while we search the network for a saved TV that stopped answering at its old address.
     private(set) var isRelocating = false
@@ -15,15 +21,22 @@ final class AppModel: TVDriverDelegate {
     var showingKeyboard = false
     var showingApps = false
     var showingSettings = false
-    var showingJoystick = false {
+    var remoteControlMode: RemoteControlMode? {
         didSet {
             #if os(iOS)
             #if DEBUG
             if DemoMode.isEnabled { return }
             #endif
             // Persist the chosen view only. Gesture state and queued input stay ephemeral.
-            UserDefaults.standard.set(showingJoystick, forKey: "remoteView.eyesFree.v1")
+            UserDefaults.standard.set(remoteControlMode == .eyesFree, forKey: "remoteView.eyesFree.v1")
             #endif
+        }
+    }
+    var showingJoystick: Bool {
+        get { remoteControlMode == .eyesFree }
+        set {
+            if newValue { remoteControlMode = .eyesFree }
+            else if remoteControlMode == .eyesFree { remoteControlMode = nil }
         }
     }
     #if os(iOS)
@@ -46,7 +59,9 @@ final class AppModel: TVDriverDelegate {
     let discovery = Discovery()
     let jellyfin = JellyfinStore()
 
-    @ObservationIgnored private var driver: TVDriver?
+    @ObservationIgnored private var driver: TVDriver? {
+        didSet { supportsCursor = driver?.supportsCursor == true }
+    }
     @ObservationIgnored private var relocateTask: Task<Void, Never>?
     @ObservationIgnored private var relocationAttempted = false
 
@@ -60,6 +75,7 @@ final class AppModel: TVDriverDelegate {
             let driver = DemoDriver(device: DemoMode.devices[0])
             driver.delegate = self
             self.driver = driver
+            supportsCursor = driver.supportsCursor
             state = .connected
             switch DemoMode.sheet {
             case "apps": showingApps = true
@@ -249,7 +265,7 @@ final class AppModel: TVDriverDelegate {
         relocateTask = nil
         isRelocating = false
         discovery.stop()
-        showingJoystick = false
+        remoteControlMode = nil
         driver?.disconnect()
         state = .idle
     }
@@ -371,6 +387,18 @@ final class AppModel: TVDriverDelegate {
     }
 
     func supports(_ key: RemoteKey) -> Bool { driver?.supports(key) ?? true }
+
+    func sendCursor(_ command: CursorCommand, request: RemoteInputRequest) async -> Bool {
+        guard state == .connected, !isConnectionPaused, !request.isCancelled, !Task.isCancelled,
+              let driver, driver.supportsCursor, remoteControlMode == .cursor else { return false }
+        let sent = await driver.sendCursor(command, request: request)
+        guard self.driver === driver, !request.isCancelled, !Task.isCancelled,
+              state == .connected, remoteControlMode == .cursor else { return false }
+        #if os(iOS)
+        if sent { remoteActivity.noteInteraction() }
+        #endif
+        return sent
+    }
 
     func sendText(_ text: String) {
         if isConnectionPaused { reconnect() }
