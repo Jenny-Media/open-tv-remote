@@ -15,7 +15,7 @@ final class JoystickUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoInputLog", "YES", "-demoEyesFree", openMode ? "YES" : "NO"]
         app.launch()
-        if openMode { XCTAssertTrue(app.buttons["remoteMode-eyesFree"].waitForExistence(timeout: 10)) }
+        if openMode { XCTAssertTrue(stick.waitForExistence(timeout: 10)) }
     }
 
     private var log: XCUIElement { app.staticTexts["eyesFreeInputLog"] }
@@ -24,17 +24,29 @@ final class JoystickUITests: XCTestCase {
 
     func testSwitchPersistentModes() {
         launch(openMode: false)
-        let entry = app.buttons["remoteMode-eyesFree"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 10))
-        entry.tap()
-        XCTAssertTrue(app.buttons["remoteMode-eyesFree"].waitForExistence(timeout: 5))
+        selectMode("eyesFree", title: "Eyes-free")
+        XCTAssertTrue(stick.waitForExistence(timeout: 5))
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Eyes-free mode on iPhone 18 Pro Max"
+        screenshot.name = "Eyes-free remote"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        app.buttons["remoteMode-standard"].tap()
+        selectMode("standard", title: "Directional pad")
         XCTAssertFalse(stick.exists)
-        XCTAssertTrue(entry.exists)
+    }
+
+    private func selectMode(_ id: String, title: String) {
+        let inline = app.buttons["remoteMode-" + id]
+        let picker = app.buttons["remoteModePicker"]
+        let available = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            inline.exists || picker.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [available], timeout: 10), .completed)
+        if inline.exists {
+            inline.tap()
+        } else {
+            picker.tap()
+            app.buttons[title].tap()
+        }
     }
 
     func testTapBackAndHome() {
