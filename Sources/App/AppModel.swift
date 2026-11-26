@@ -86,12 +86,13 @@ final class AppModel: TVDriverDelegate {
         #if DEBUG
         if DemoMode.isEnabled {
             devices = DemoMode.devices
-            currentID = DemoMode.devices[0].id
-            let driver = DemoDriver(device: DemoMode.devices[0])
+            let device = devices[0]
+            currentID = device.id
+            let driver = DemoDriver(device: device)
             driver.delegate = self
             self.driver = driver
             supportsCursor = driver.supportsCursor
-            state = .connected
+            state = driver.state
             if UserDefaults.standard.bool(forKey: "demoEyesFree") { remoteControlMode = .eyesFree }
             else if let raw = UserDefaults.standard.string(forKey: "padMode"),
                     let mode = RemoteControlMode(rawValue: raw) { remoteControlMode = mode }
@@ -373,12 +374,21 @@ final class AppModel: TVDriverDelegate {
     #if DEBUG
     private(set) var demoInputCount = 0
     private(set) var demoLastInput = "None"
+
+    private func recordDemoInput(_ key: RemoteKey) {
+        guard DemoMode.isEnabled else { return }
+        demoInputCount += 1
+        demoLastInput = key.accessibilityName
+    }
     #endif
 
     func press(_ key: RemoteKey) {
         if isConnectionPaused { reconnect() }
         #if os(iOS)
         remoteActivity.noteInteraction()
+        #endif
+        #if DEBUG
+        recordDemoInput(key)
         #endif
         driver?.send(key)
     }
@@ -389,10 +399,7 @@ final class AppModel: TVDriverDelegate {
         remoteActivity.noteInteraction()
         #endif
         #if DEBUG
-        if DemoMode.isEnabled {
-            demoInputCount += 1
-            demoLastInput = key.accessibilityName
-        }
+        recordDemoInput(key)
         #endif
         await driver?.sendInteractive(key, request: request)
     }

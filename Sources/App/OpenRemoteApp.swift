@@ -178,15 +178,15 @@ private struct DuoRemoteToolbar: ViewModifier {
     @ToolbarContentBuilder
     private var actions: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Power", systemImage: "power") { model.press(.power) }
-                .tint(Theme.power)
-                .contextMenu {
-                    if model.supports(.powerOff) {
-                        Button("Turn off TV", systemImage: "power") { model.press(.powerOff) }
-                    }
-                }
+            if model.supports(.powerOff) {
+                RemotePowerButton().frame(width: 44, height: 44)
+            } else {
+                Button("Power", systemImage: "power") { model.press(.power) }
+                    .tint(Theme.power)
+            }
         }
         .axisBehavior(.verticalPreferred)
+        .visibilityPriority(.high)
 
         ToolbarItem(placement: .topBarTrailing) {
             Button("Keyboard", systemImage: "keyboard") { model.showingKeyboard = true }

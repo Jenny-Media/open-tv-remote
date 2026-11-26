@@ -294,15 +294,7 @@ private struct TopBar: View {
     var body: some View {
         let layout = vertical ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         layout {
-            // Where the TV has a separate full power-off (Samsung), holding the key sends it.
-            KeyCap(shape: Circle(), tint: Theme.power, accessibilityLabel: "Power",
-                   holdAction: model.supports(.powerOff) ? { model.press(.powerOff) } : nil,
-                   holdName: "Turn off TV") {
-                model.press(.power)
-            } label: {
-                Image(systemName: "power").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.power)
-            }
-            .frame(width: 48, height: 48)
+            RemotePowerButton().frame(width: 48, height: 48)
 
             if showsTVSelection {
                 TVSelectionButton()
@@ -328,6 +320,21 @@ private struct TopBar: View {
             }
             #endif
             SettingsButton().frame(width: 48, height: 48)
+        }
+    }
+}
+
+struct RemotePowerButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        // Samsung TVs can use a separate full power-off command.
+        KeyCap(shape: Circle(), tint: Theme.power, accessibilityLabel: "Power",
+               holdAction: model.supports(.powerOff) ? { model.press(.powerOff) } : nil,
+               holdName: "Turn off TV") {
+            model.press(.power)
+        } label: {
+            Image(systemName: "power").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.power)
         }
     }
 }

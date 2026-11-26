@@ -12,9 +12,10 @@ final class JoystickUITests: XCTestCase {
         app?.terminate()
     }
 
-    private func launch(openMode: Bool = true) {
+    private func launch(openMode: Bool = true, additionalArguments: [String] = []) {
         app = XCUIApplication()
         app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoInputLog", "YES", "-demoEyesFree", openMode ? "YES" : "NO"]
+        app.launchArguments += additionalArguments
         app.launch()
         if openMode { XCTAssertTrue(stick.waitForExistence(timeout: 10)) }
     }
@@ -48,6 +49,67 @@ final class JoystickUITests: XCTestCase {
         apps.buttons["Done"].tap()
         XCTAssertTrue(stick.waitForExistence(timeout: 5))
         XCTAssertEqual(log.label, "0:None")
+
+        app.buttons["TV Apps"].tap()
+        let youtube = app.buttons["Open YouTube"]
+        XCTAssertTrue(youtube.waitForExistence(timeout: 5))
+        youtube.tap()
+        XCTAssertTrue(stick.waitForExistence(timeout: 5))
+        XCTAssertFalse(apps.exists)
+    }
+
+    func testTVAppsStaysOpenWhenPairingIsRequired() {
+        launch(additionalArguments: ["-demoUnpaired", "YES"])
+        app.buttons["TV Apps"].tap()
+        let youtube = app.buttons["Open YouTube"]
+        XCTAssertTrue(youtube.waitForExistence(timeout: 5))
+        youtube.tap()
+        XCTAssertTrue(app.staticTexts["Pair with your TV to open apps."].waitForExistence(timeout: 5))
+        XCTAssertTrue(youtube.exists)
+        XCTAssertTrue(app.navigationBars["Apps"].exists)
+    }
+
+    func testPowerHoldSendsFullShutdownWithoutAShortPress() {
+        launch()
+        let power = app.buttons["Power"]
+        XCTAssertTrue(power.isHittable)
+        power.tap()
+        XCTAssertEqual(log.label, "1:Power")
+        power.press(forDuration: 1.1)
+        XCTAssertEqual(log.label, "2:Turn off")
+    }
+
+    func testPairingKeepsTheCodeAndCancelReachableAfterRotation() {
+        let device = XCUIDevice.shared
+        let originalOrientation = device.orientation
+        defer {
+            if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
+        }
+        device.orientation = .portrait
+        launch(openMode: false, additionalArguments: ["-demoUnpaired", "YES"])
+        let startingFrame = app.frame
+        app.buttons["Pair"].tap()
+
+        let field = app.textFields["Pairing code"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        field.typeText("AB12C")
+
+        device.orientation = .landscapeRight
+        waitForLandscapeIfNarrow(startingFrame)
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(cancel.isHittable)
+        XCTAssertEqual(field.value as? String, "AB12C")
+        field.typeText("0")
+
+        let error = app.staticTexts["Incorrect pairing code."]
+        let visibleError = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in error.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [visibleError], timeout: 5), .completed)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(cancel.isHittable)
+        cancel.tap()
+        XCTAssertTrue(app.buttons["Pair"].waitForExistence(timeout: 5))
     }
 
     func testDownloadedTVArtworkFitsItsGridCell() {
@@ -80,20 +142,15 @@ final class JoystickUITests: XCTestCase {
 
     func testRotatingKeepsTheRemoteUsable() {
         let device = XCUIDevice.shared
-        launch()
-        let startingFrame = app.frame
         let originalOrientation = device.orientation
         defer {
             if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
         }
-        device.orientation = originalOrientation == .landscapeRight ? .landscapeLeft : .landscapeRight
-
-        if startingFrame.width < 500 && startingFrame.width < startingFrame.height {
-            let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                self.app.frame.width > self.app.frame.height
-            }, object: nil)
-            XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 5), .completed)
-        }
+        device.orientation = .portrait
+        launch()
+        let startingFrame = app.frame
+        device.orientation = .landscapeRight
+        waitForLandscapeIfNarrow(startingFrame)
         XCTAssertTrue(app.buttons["TV Apps"].isHittable)
         XCTAssertTrue(app.buttons["Home"].isHittable)
         XCTAssertLessThan(app.buttons["Home"].frame.midY, stick.frame.midY)
@@ -104,6 +161,14 @@ final class JoystickUITests: XCTestCase {
         screenshot.name = "Eyes-free remote after rotation"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    private func waitForLandscapeIfNarrow(_ startingFrame: CGRect) {
+        guard startingFrame.width < 500 && startingFrame.width < startingFrame.height else { return }
+        let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.app.frame.width > self.app.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 5), .completed)
     }
 
     private func selectMode(_ id: String, title: String) {
