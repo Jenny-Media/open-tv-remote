@@ -1,5 +1,5 @@
 import SwiftUI
-#if os(iOS)
+#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
 import UIKit
 #endif
 
@@ -16,7 +16,8 @@ struct RemoteScreen: View {
 
     var body: some View {
         Group {
-            #if os(iOS)
+            // Xcode 27.0 already has Swift 6.4. The reserved regions API arrived in iOS 27.1.
+            #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
             if #available(iOS 27.1, *) {
                 adaptiveRemote
             } else {
@@ -34,7 +35,7 @@ struct RemoteScreen: View {
         .onAppear { focused = true }
     }
 
-    #if os(iOS)
+    #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @available(iOS 27.1, *)
