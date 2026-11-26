@@ -102,6 +102,67 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [unexpectedRepeat], timeout: 0.5), .completed)
     }
 
+    func testBookDirectionalHoldUsesCancellableRepeats() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: ["-padMode", "standard", "-demoInteractiveDelayMS", "900"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        let target = ok.coordinate(withNormalizedOffset: CGVector(dx: 1.4, dy: 0.5))
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Right") {
+            target.press(forDuration: 1)
+        }
+    }
+
+    func testNarrowBookKeyboardActionsRemainReachableAfterSwappingSides() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: ["-padMode", "keyboard", "-demoKeyboardWidth", "164"])
+        let swap = app.buttons["bookSwapSides"]
+        let clear = app.buttons["Clear"]
+        let enter = app.buttons["Return"]
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertTrue(enter.waitForExistence(timeout: 5))
+        let originalSide = enter.frame.midX < swap.frame.midX
+        swap.tap()
+        defer {
+            if swap.isHittable && (enter.frame.midX < swap.frame.midX) != originalSide { swap.tap() }
+        }
+        XCTAssertEqual(enter.frame.midX < swap.frame.midX, !originalSide)
+        let delete = try XCTUnwrap(app.buttons.matching(identifier: "Delete").allElementsBoundByIndex.first {
+            abs($0.frame.midY - enter.frame.midY) < 2
+        })
+        for button in [clear, delete, enter] {
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertEqual(button.frame.midY, enter.frame.midY, accuracy: 2)
+        }
+        clear.tap()
+        delete.tap()
+        enter.tap()
+    }
+
+    func testTabletopKeypadMediaHoldUsesCancellableRepeats() throws {
+        try requireDuoPosture("tabletop")
+        launch(openMode: false, additionalArguments: ["-padMode", "keypad", "-demoInteractiveDelayMS", "900"])
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        XCTAssertTrue(forward.isHittable)
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Fast forward") {
+            forward.press(forDuration: 1)
+        }
+    }
+
+    private func assertDelayedHoldSendsOneRepeat(log: XCUIElement, key: String, hold: () -> Void) {
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        hold()
+        let expected = "2:\(key)"
+        XCTAssertEqual(log.label, expected)
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            log.label != expected
+        }, object: nil)
+        changed.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 0.5), .completed)
+    }
+
     func testTabletopShowsTVStatusAboveTheRemoteAndPlayback() throws {
         try requireDuoPosture("tabletop")
         launch(additionalArguments: ["-demoForegroundApp", "YouTube"])

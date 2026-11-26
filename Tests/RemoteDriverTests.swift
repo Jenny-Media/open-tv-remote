@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import JoystickCore
 
@@ -26,11 +27,11 @@ struct RemoteDriverTests {
         LocalHTTP.reset()
     }
 
-    private func connectedRoku(isTV: Bool? = nil) async -> RokuDriver {
+    private func connectedRoku(isTV: Bool? = nil, playerVolume: Bool? = nil) async -> RokuDriver {
         LocalHTTP.reset()
-        if let isTV {
-            LocalHTTP.deviceInfo = Data("<device-info><is-tv>\(isTV)</is-tv></device-info>".utf8)
-        }
+        let tv = isTV.map { "<is-tv>\($0)</is-tv>" } ?? ""
+        let volume = playerVolume.map { "<supports-audio-volume-control>\($0)</supports-audio-volume-control>" } ?? ""
+        LocalHTTP.deviceInfo = Data("<device-info>\(tv)\(volume)</device-info>".utf8)
         let driver = RokuDriver(device: TVDevice(name: "Test Roku", brand: .roku, host: "192.0.2.10"))
         driver.connect()
         await waitUntil { driver.state == .connected }
@@ -50,6 +51,59 @@ struct RemoteDriverTests {
             await waitUntil { !LocalHTTP.started.isEmpty }
             #expect(LocalHTTP.started == ["/keypress/Back"])
             if let path = LocalHTTP.started.first { LocalHTTP.complete(path) }
+        }
+        driver.disconnect()
+    }
+
+    @Test(arguments: [nil, false, true] as [Bool?]) func rokuPlayerUsesReportedAudioCapability(_ playerVolume: Bool?) async {
+        let driver = await connectedRoku(isTV: false, playerVolume: playerVolume)
+        defer { driver.disconnect() }
+        for key in [RemoteKey.volumeUp, .volumeDown, .mute] {
+            #expect(driver.supports(key) == (playerVolume != false))
+        }
+        driver.send(.mute)
+        driver.send(.back)
+        await waitUntil { !LocalHTTP.started.isEmpty }
+        if playerVolume != false {
+            #expect(LocalHTTP.started == ["/keypress/VolumeMute"])
+            LocalHTTP.complete("/keypress/VolumeMute")
+            await waitUntil { LocalHTTP.started.count == 2 }
+        } else {
+            #expect(LocalHTTP.started == ["/keypress/Back"])
+        }
+        #expect(LocalHTTP.started.last == "/keypress/Back")
+        LocalHTTP.complete("/keypress/Back")
+    }
+
+    @Test func rokuTVKeepsVolumeWhenPlayerFlagIsFalse() async {
+        let driver = await connectedRoku(isTV: true, playerVolume: false)
+        #expect(driver.supports(.input))
+        #expect(driver.supports(.mute))
+        driver.disconnect()
+    }
+
+    @Test func rokuTunerCapabilityNotifiesAfterKeypressConnectsFirst() async {
+        LocalHTTP.reset()
+        LocalHTTP.delaysDeviceInfo = true
+        LocalHTTP.deviceInfo = Data("<device-info><user-device-name>Test Roku</user-device-name><is-tv>true</is-tv></device-info>".utf8)
+        let driver = RokuDriver(device: TVDevice(name: "Test Roku", brand: .roku, host: "192.0.2.10"))
+        driver.connect()
+        await waitUntil { LocalHTTP.deviceInfoRequest != nil }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        LocalHTTP.complete("/keypress/Home")
+        await waitUntil { driver.state == .connected }
+
+        await confirmation("The view is notified when tuner support becomes known") { changed in
+            let supportsTuner = withObservationTracking {
+                driver.supports(.input)
+            } onChange: {
+                changed()
+            }
+            #expect(!supportsTuner)
+            LocalHTTP.completeDeviceInfo()
+            await waitUntil { driver.supports(.input) }
+            #expect(driver.state == .connected)
         }
         driver.disconnect()
     }

@@ -1,19 +1,29 @@
 import Foundation
+import Observation
 
 /// Roku External Control Protocol: plain HTTP on port 8060, no pairing.
 @MainActor
+@Observable
 final class RokuDriver: TVDriver {
+    private struct KeyCapabilities {
+        var isTV = false
+        var playerVolume: Bool?
+
+        // The flag describes streaming players. Older firmware may omit it.
+        var supportsVolume: Bool { isTV || playerVolume != false }
+    }
+
     private(set) var device: TVDevice
-    weak var delegate: TVDriverDelegate?
+    @ObservationIgnored weak var delegate: TVDriverDelegate?
     private(set) var state: ConnectionState = .idle {
         didSet { if state != oldValue { delegate?.driver(self, didChangeState: state) } }
     }
 
     private var base: URL { URL(string: "http://\(device.host):8060")! }
     /// Keypresses must arrive in order, so they go through one serial chain.
-    private var queue: Task<Void, Never>?
-    private var generation = 0
-    private var isTV = false
+    @ObservationIgnored private var queue: Task<Void, Never>?
+    @ObservationIgnored private var generation = 0
+    private var keyCapabilities = KeyCapabilities()
 
     init(device: TVDevice) {
         self.device = device
@@ -30,7 +40,10 @@ final class RokuDriver: TVDriver {
                 state = .failed("Couldn't reach the Roku. Is it on and on the same Wi-Fi?")
                 return
             }
-            isTV = XMLText.first("is-tv", in: data) == "true"
+            keyCapabilities = KeyCapabilities(
+                isTV: XMLText.first("is-tv", in: data) == "true",
+                playerVolume: XMLText.first("supports-audio-volume-control", in: data).flatMap(Bool.init)
+            )
             if let name = XMLText.first("user-device-name", in: data) ?? XMLText.first("friendly-device-name", in: data),
                name != device.name {
                 device.name = name
@@ -128,11 +141,11 @@ final class RokuDriver: TVDriver {
         case .back: "Back"
         case .home, .exit: "Home"
         case .menu, .info: "Info"
-        case .input: isTV ? "InputTuner" : nil
+        case .input: keyCapabilities.isTV ? "InputTuner" : nil
         case .search: "Search"
-        case .volumeUp: "VolumeUp"
-        case .volumeDown: "VolumeDown"
-        case .mute: "VolumeMute"
+        case .volumeUp: keyCapabilities.supportsVolume ? "VolumeUp" : nil
+        case .volumeDown: keyCapabilities.supportsVolume ? "VolumeDown" : nil
+        case .mute: keyCapabilities.supportsVolume ? "VolumeMute" : nil
         case .channelUp: "ChannelUp"
         case .channelDown: "ChannelDown"
         case .playPause: "Play"

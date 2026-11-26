@@ -52,6 +52,7 @@ struct Wedge: InsettableShape {
 
 struct DPadView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
 
     private let directions: [(key: RemoteKey, angle: Double, symbol: String)] = [
         (.right, 0, "chevron.right"),
@@ -73,7 +74,8 @@ struct DPadView: View {
 
                 ForEach(directions, id: \.angle) { d in
                     KeyCap(shape: Wedge(direction: .degrees(d.angle)), repeats: true,
-                           accessibilityLabel: d.key.accessibilityName) {
+                           accessibilityLabel: d.key.accessibilityName,
+                           repeatAction: model.repeatAction(for: d.key, enabled: cancellableRepeats)) {
                         model.press(d.key)
                     } label: {
                         Image(systemName: d.symbol)
@@ -135,10 +137,7 @@ struct KeyboardPadView: View {
                             special(shifted ? "shift.fill" : "shift", label: "Shift", width: wide) { shifted.toggle() }
                         }
                         characters(rows[3], width: key)
-                        KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete") { model.typeDelete() } label: {
-                            Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
-                        }
-                        .frame(width: wide)
+                        deleteButton.frame(width: wide)
                     }
                     HStack(spacing: gap) {
                         KeyCap(shape: keyShape, accessibilityLabel: symbols ? "Letters" : "Numbers and symbols") {
@@ -156,31 +155,56 @@ struct KeyboardPadView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        #if DEBUG
+        .frame(maxWidth: DemoMode.keyboardTestWidth ?? .infinity)
+        #endif
     }
 
     /// A small D-pad for moving through results, with clear, delete and Return beside it.
     private var controls: some View {
-        HStack(spacing: 20) {
-            KeyCap(shape: keyShape, accessibilityLabel: "Clear") { model.typeClear() } label: {
-                Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
-            }
-            .frame(height: 52)
-            // Lines up with the delete key opposite.
-            .frame(maxWidth: .infinity, maxHeight: 52 * 2 + 10, alignment: .top)
-            DPadView().frame(width: 150, height: 150)
-            VStack(spacing: 10) {
-                KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete") { model.typeDelete() } label: {
-                    Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                clearButton
+                    .frame(minWidth: 44)
+                    .frame(height: 52)
+                    .frame(maxWidth: .infinity, maxHeight: 114, alignment: .top)
+                DPadView().frame(width: 150, height: 150)
+                VStack(spacing: 10) {
+                    deleteButton.frame(height: 52)
+                    returnButton.frame(height: 52)
                 }
-                .frame(height: 52)
-                KeyCap(shape: keyShape, accessibilityLabel: "Return") { model.typeReturn() } label: {
-                    Image(systemName: "return").font(.system(size: 16, weight: .semibold))
-                }
-                .frame(height: 52)
+                .frame(minWidth: 44, maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+
+            VStack(spacing: 8) {
+                DPadView().frame(width: 108, height: 108)
+                HStack(spacing: 6) {
+                    clearButton
+                    deleteButton
+                    returnButton
+                }
+                .frame(height: 44)
+            }
         }
-        .frame(height: 150)
+    }
+
+    private var clearButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Clear") { model.typeClear() } label: {
+            Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+    }
+
+    private var deleteButton: some View {
+        KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete") { model.typeDelete() } label: {
+            Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
+        }
+    }
+
+    private var returnButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Return") { model.typeReturn() } label: {
+            Image(systemName: "return").font(.system(size: 16, weight: .semibold))
+        }
     }
 
     private var keyShape: RoundedRectangle { RoundedRectangle(cornerRadius: 8, style: .continuous) }

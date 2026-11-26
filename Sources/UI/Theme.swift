@@ -317,15 +317,43 @@ extension KeyCap where S == RoundedRectangle {
 /// Convenience: a key bound straight to a RemoteKey.
 struct RemoteKeyButton: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     let key: RemoteKey
     let symbol: String
     var repeats = false
 
     var body: some View {
-        KeyCap(repeats: repeats, enabled: model.supports(key), accessibilityLabel: key.accessibilityName) {
+        KeyCap(repeats: repeats, enabled: model.supports(key), accessibilityLabel: key.accessibilityName,
+               repeatAction: model.repeatAction(for: key, enabled: repeats && cancellableRepeats)) {
             model.press(key)
         } label: {
             Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
+        }
+    }
+}
+
+private struct CancellableRemoteRepeatsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var cancellableRemoteRepeats: Bool {
+        get { self[CancellableRemoteRepeatsKey.self] }
+        set { self[CancellableRemoteRepeatsKey.self] = newValue }
+    }
+}
+
+extension AppModel {
+    func repeatAction(for key: RemoteKey, enabled: Bool) -> ((RemoteInputRequest) async -> Void)? {
+        guard enabled else { return nil }
+        let deviceID = currentID
+        return { request in
+            guard self.currentID == deviceID, self.remoteInputAvailable, self.supports(key) else {
+                request.cancel()
+                return
+            }
+            Haptics.tick()
+            await self.pressInteractively(key, request: request)
         }
     }
 }

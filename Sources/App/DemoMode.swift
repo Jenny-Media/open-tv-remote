@@ -51,6 +51,10 @@ enum DemoMode {
 
     static var sheet: String? { UserDefaults.standard.string(forKey: "demoSheet") }
     static var foregroundAppName: String? { UserDefaults.standard.string(forKey: "demoForegroundApp") }
+    static var keyboardTestWidth: CGFloat? {
+        let width = UserDefaults.standard.double(forKey: "demoKeyboardWidth")
+        return isEnabled && width > 0 ? CGFloat(width) : nil
+    }
 
     static var artworkApps: [TVApp]? {
         guard let value = UserDefaults.standard.string(forKey: "demoAppArtworkURL"),
