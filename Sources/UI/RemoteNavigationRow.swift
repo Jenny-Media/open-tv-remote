@@ -71,11 +71,11 @@ private struct RemoteModePicker: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 8)
                 .accessibilityLabel("Control mode, " + selection.title)
+                .accessibilityIdentifier("remoteModePicker")
             }
         }
         .background(Capsule().fill(Theme.well))
         .overlay(Capsule().strokeBorder(.white.opacity(0.05), lineWidth: 1))
-        .accessibilityIdentifier("remoteModePicker")
     }
 }
 

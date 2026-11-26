@@ -7,10 +7,12 @@ struct CursorScreen: View {
     @Environment(AppModel.self) private var model
     @AppStorage("page") private var page = 0
 
+    var compactHeight = false
+
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
-                       sessionID: model.currentID,
+                       sessionID: model.currentID, compactHeight: compactHeight,
                        mode: Binding(get: { model.remoteControlMode }, set: {
                            Haptics.tap(); model.selectRemoteMode($0)
                        }), modes: model.availableRemoteModes) { command, request in
@@ -39,15 +41,17 @@ private struct CursorControls: View {
     let tvName: String
     let enabled: Bool
     let sessionID: String?
+    let compactHeight: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
-    init(tvName: String, enabled: Bool, sessionID: String?,
+    init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
         self.enabled = enabled
         self.sessionID = sessionID
+        self.compactHeight = compactHeight
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -60,20 +64,23 @@ private struct CursorControls: View {
             RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                 back: { press(.back) }, home: { press(.home) })
         } controls: {
-            VStack(spacing: 12) {
-                if dynamicTypeSize.isAccessibilitySize {
-                    // Keep scrollable settings outside the pointer's gesture surface.
+            if compactHeight {
+                HStack(spacing: 16) {
                     controlSurface
-                    ScrollView {
-                        VStack(spacing: 16) { instructions; preferences; actions }
-                            .frame(maxWidth: .infinity)
+                    settingsScroll.frame(maxWidth: 250)
+                }
+            } else {
+                VStack(spacing: 12) {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        // Keep scrollable settings outside the pointer's gesture surface.
+                        controlSurface
+                        settingsScroll
+                    } else {
+                        instructions
+                        controlSurface
+                        preferences
+                        actions
                     }
-                    .scrollBounceBehavior(.basedOnSize)
-                } else {
-                    instructions
-                    controlSurface
-                    preferences
-                    actions
                 }
             }
         }
@@ -86,6 +93,18 @@ private struct CursorControls: View {
         .onChange(of: sessionID) { _, _ in sender.stop() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { sender.stop() } }
         .onDisappear { sender.stop() }
+    }
+
+    private var settingsScroll: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                instructions
+                preferences
+                actions
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var instructions: some View {
@@ -113,7 +132,7 @@ private struct CursorControls: View {
                 .id(sessionID)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 220 : 180)
+        .frame(minHeight: compactHeight ? 108 : dynamicTypeSize.isAccessibilitySize ? 220 : 180)
     }
 
     private var preferences: some View {

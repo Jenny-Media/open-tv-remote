@@ -55,9 +55,16 @@ final class AppModel: TVDriverDelegate {
     private static func makeRemoteActivityController() -> RemoteActivityController {
         #if DEBUG
         if DemoMode.isEnabled {
-            return RemoteActivityController(system: ActivityKitRemoteActivitySystem(allowsSystemAccess: false),
-                                            load: { nil }, save: { _ in },
-                                            loadOptions: { RemoteActivityOptions(automatic: false) }, saveOptions: { _ in })
+            #if targetEnvironment(simulator)
+            let allowsSystemAccess = UserDefaults.standard.bool(forKey: "demoLiveActivity")
+            #else
+            let allowsSystemAccess = false
+            #endif
+            var sessionData: Data?
+            var options = RemoteActivityOptions(automatic: allowsSystemAccess)
+            return RemoteActivityController(system: ActivityKitRemoteActivitySystem(allowsSystemAccess: allowsSystemAccess),
+                                            load: { sessionData }, save: { sessionData = $0 },
+                                            loadOptions: { options }, saveOptions: { options = $0 })
         }
         #endif
         return RemoteActivityController(system: ActivityKitRemoteActivitySystem())

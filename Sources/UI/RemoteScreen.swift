@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+import UIKit
+#endif
 
 struct RemoteScreen: View {
     @Environment(AppModel.self) private var model
@@ -10,31 +13,123 @@ struct RemoteScreen: View {
         }
     }
     @FocusState private var focused: Bool
+    @State private var heldHardwareKeys: Set<Character> = []
 
     var body: some View {
-        VStack(spacing: 12) {
-            TopBar()
-            StatusBanner()
-            switch model.remoteControlMode {
-            case .standard, .keyboard, .keypad: standardMode
-            case .eyesFree: JoystickScreen()
-            case .cursor: CursorScreen()
+        Group {
+            // Xcode 27.0 already has Swift 6.4. The reserved regions API arrived in iOS 27.1.
+            #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+            if #available(iOS 27.1, *) {
+                adaptiveRemote
+            } else {
+                remote(showHeader: true, tabletop: false)
             }
+            #else
+            remote(showHeader: true, tabletop: false)
+            #endif
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .frame(maxWidth: 600)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.background.ignoresSafeArea())
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onKeyPress(action: handleKey)
+        .onKeyPress(phases: [.down, .repeat, .up], action: handleHardwareKey)
         .onAppear { focused = true }
+        .onDisappear { model.typed = "" }
+        .onChange(of: mode) { oldMode, _ in
+            if oldMode == .keyboard { model.typed = "" }
+        }
+        .onChange(of: focused) { _, _ in heldHardwareKeys.removeAll() }
+        .onChange(of: model.remoteCommandsAvailable) { _, _ in heldHardwareKeys.removeAll() }
     }
 
-    private var standardMode: some View {
-        RemoteModeLayout { navRow } controls: { standardControls }
+    #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    @available(iOS 27.1, *)
+    private var adaptiveRemote: some View {
+        GeometryReader { geometry in
+            let layout = RemoteWindowLayout(
+                size: geometry.size,
+                expandsRemote: horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .phone,
+                division: geometry.reservedRegions(kind: .division).first?.frame,
+                occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame)
+            )
+            let tabletop = layout.arrangement == .tabletop
+
+            ZStack {
+                remote(showHeader: !tabletop, tabletop: tabletop)
+                    // Recreate transient input when its hit targets move. The selected TV,
+                    // navigation page, and mode live above this view.
+                    .id(layout.controls)
+                    .frame(width: layout.controls.width, height: layout.controls.height)
+                    .position(x: layout.controls.midX, y: layout.controls.midY)
+
+                if let companion = layout.companion {
+                    companionPane(tabletop: tabletop)
+                        .accessibilityIdentifier(tabletop ? "remoteTVStatusPane" : "remoteTVAppsPane")
+                        .frame(width: companion.width, height: companion.height)
+                        .position(x: companion.midX, y: companion.midY)
+                }
+            }
+            .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
+        }
+    }
+
+    private func companionPane(tabletop: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if tabletop {
+                Spacer(minLength: 0)
+                TVSelectionButton(prominent: true)
+                StatusBanner()
+                Spacer(minLength: 0)
+            } else if model.current != nil {
+                Text("TV Apps")
+                    .font(.headline)
+                    .foregroundStyle(Theme.label)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 20)
+                TVAppGrid(onLaunch: {})
+                    .disabled(!model.remoteCommandsAvailable)
+            }
+        }
+        .padding(.horizontal, tabletop ? 20 : 0)
+        .padding(.top, tabletop ? 8 : 20)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+    #endif
+
+    private func remote(showHeader: Bool, tabletop: Bool) -> some View {
+        VStack(spacing: tabletop ? 6 : 12) {
+            TopBar(showsTVSelection: showHeader)
+            if showHeader { StatusBanner() }
+            switch model.remoteControlMode {
+            case .standard, .keyboard, .keypad: standardMode(tabletop: tabletop)
+            case .eyesFree: JoystickScreen(compactHeight: tabletop)
+            case .cursor: CursorScreen(compactHeight: tabletop)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .frame(maxWidth: tabletop ? .infinity : 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func standardMode(tabletop: Bool) -> some View {
+        RemoteModeLayout { navRow } controls: {
+            if tabletop && mode != .keyboard {
+                ScrollView {
+                    HStack(alignment: .top, spacing: 16) {
+                        pad.frame(height: 192)
+                        controls
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.bottom, 12)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            } else {
+                standardControls
+            }
+        }
     }
 
     private var standardControls: some View {
@@ -101,7 +196,19 @@ struct RemoteScreen: View {
         }
     }
 
-    /// Hardware keyboard control (Mac, or iPad with a keyboard).
+    private func handleHardwareKey(_ press: KeyPress) -> KeyPress.Result {
+        let character = press.key.character
+        if press.phase == .up {
+            heldHardwareKeys.remove(character)
+            return .ignored
+        }
+        if press.phase == .repeat, !heldHardwareKeys.contains(character) { return .ignored }
+        let result = handleKey(press)
+        if press.phase == .down, result == .handled { heldHardwareKeys.insert(character) }
+        return result
+    }
+
+    /// Hardware keyboard control.
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
         guard model.remoteCommandsAvailable else { return .ignored }
         if mode == .keyboard, let result = typeKey(press) { return result }
@@ -157,6 +264,7 @@ struct RemoteScreen: View {
 
 private struct TopBar: View {
     @Environment(AppModel.self) private var model
+    var showsTVSelection = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -170,23 +278,11 @@ private struct TopBar: View {
             }
             .frame(width: 48, height: 48)
 
-            Button { model.showingDevices = true } label: {
-                VStack(spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text(model.current?.name ?? "Choose a TV")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Theme.secondary)
-                    }
-                    StatusLine()
-                }
-                .foregroundStyle(Theme.label)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+            if showsTVSelection {
+                TVSelectionButton()
+            } else {
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("Choose which TV to control")
 
             KeyCap(shape: Circle(), accessibilityLabel: "Keyboard") {
                 model.showingKeyboard = true
@@ -197,6 +293,39 @@ private struct TopBar: View {
 
             SettingsButton().frame(width: 48, height: 48)
         }
+    }
+}
+
+private struct TVSelectionButton: View {
+    @Environment(AppModel.self) private var model
+    var prominent = false
+
+    var body: some View {
+        Button { model.showingDevices = true } label: {
+            VStack(spacing: 3) {
+                if prominent {
+                    Image(systemName: "tv")
+                        .font(.largeTitle)
+                        .foregroundStyle(Theme.accent)
+                        .accessibilityHidden(true)
+                        .padding(.bottom, 8)
+                }
+                HStack(spacing: 5) {
+                    Text(model.current?.name ?? "Choose a TV")
+                        .font(prominent ? .title2.weight(.semibold) : .system(size: 17, weight: .semibold, design: .rounded))
+                        .lineLimit(prominent ? 2 : 1)
+                        .multilineTextAlignment(.center)
+                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.secondary)
+                }
+                StatusLine()
+            }
+            .foregroundStyle(Theme.label)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Choose which TV to control")
     }
 }
 
