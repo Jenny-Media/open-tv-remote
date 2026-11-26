@@ -37,7 +37,7 @@ struct JoystickGesture {
 
     mutating func finish(location: CGPoint? = nil, time: TimeInterval) -> Bool {
         if let location, let origin { update(start: origin, location: location, time: time) }
-        let select = origin != nil && maximumTravel <= 10 && time - startedAt <= 0.28
+        let select = origin != nil && maximumTravel <= 10 && (0...0.28).contains(time - startedAt)
         cancel()
         return select
     }

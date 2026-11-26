@@ -139,13 +139,13 @@ private struct JoystickControls: View {
                     guard enabled, scenePhase == .active, !ignoreUntilLift else { return }
                     let previous = input.direction
                     input.update(start: value.startLocation, location: value.location,
-                                 time: ProcessInfo.processInfo.systemUptime)
+                                 time: value.time.timeIntervalSinceReferenceDate)
                     if previous != input.direction { sender.hold(input.direction) }
                 }
                 .onEnded { value in
                     guard enabled, scenePhase == .active else { cancel(); return }
                     guard !ignoreUntilLift else { endContact(); return }
-                    let select = input.finish(location: value.location, time: ProcessInfo.processInfo.systemUptime)
+                    let select = input.finish(location: value.location, time: value.time.timeIntervalSinceReferenceDate)
                     sender.release()
                     if select { sender.press(.select) }
                 })
