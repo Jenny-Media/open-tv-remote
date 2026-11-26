@@ -4,9 +4,11 @@ struct JoystickScreen: View {
     @Environment(AppModel.self) private var model
     @AppStorage("page") private var page = 0
 
+    var compactHeight = false
+
     var body: some View {
         JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && page == 0,
-                         sessionID: model.currentID, inputLog: inputLog,
+                         sessionID: model.currentID, inputLog: inputLog, compactHeight: compactHeight,
                          mode: Binding(get: { model.remoteControlMode }, set: {
                              Haptics.tap(); model.selectRemoteMode($0)
                          }), modes: model.availableRemoteModes) { key, request in
@@ -41,6 +43,7 @@ private struct JoystickControls: View {
     let enabled: Bool
     let sessionID: String?
     let inputLog: String?
+    let compactHeight: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
     @State private var input = JoystickGesture()
@@ -48,13 +51,14 @@ private struct JoystickControls: View {
     @GestureState private var touching = false
     @State private var ignoreUntilLift = false
 
-    init(tvName: String, enabled: Bool, sessionID: String?, inputLog: String? = nil,
+    init(tvName: String, enabled: Bool, sessionID: String?, inputLog: String? = nil, compactHeight: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.eyesFree), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (RemoteKey, RemoteInputRequest) async -> Void) {
         self.tvName = tvName
         self.enabled = enabled
         self.sessionID = sessionID
         self.inputLog = inputLog
+        self.compactHeight = compactHeight
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: JoystickSender(send: send))
@@ -65,25 +69,29 @@ private struct JoystickControls: View {
             RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                 back: { press(.back) }, home: { press(.home) })
         } controls: {
-            VStack(spacing: 16) {
+            VStack(spacing: compactHeight ? 6 : 16) {
                 VStack(spacing: 5) {
                     Text(enabled ? "Touch anywhere. Drag to move." : "Connect to a TV first.")
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    Text(enabled ? "Tap for OK · Hold a direction to repeat" : "Choose or connect to a TV above.")
-                        .font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                    if !compactHeight {
+                        Text(enabled ? "Tap for OK · Hold a direction to repeat" : "Choose or connect to a TV above.")
+                            .font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                    }
                 }
-                surface.frame(minHeight: 160)
+                surface.frame(minHeight: compactHeight ? 108 : 160)
                 if let inputLog {
                     Text(inputLog).font(.caption.monospaced()).accessibilityIdentifier("eyesFreeInputLog")
                 }
-                Button { press(.back) } label: {
-                    Label("Back", systemImage: "arrow.uturn.backward")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .frame(maxWidth: .infinity).frame(height: 80)
-                        .background(RoundedRectangle(cornerRadius: 24).fill(Theme.keyTop))
+                if !compactHeight {
+                    Button { press(.back) } label: {
+                        Label("Back", systemImage: "arrow.uturn.backward")
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .frame(maxWidth: .infinity).frame(height: 80)
+                            .background(RoundedRectangle(cornerRadius: 24).fill(Theme.keyTop))
+                    }
+                    .buttonStyle(.plain).disabled(!enabled)
+                    .accessibilityIdentifier("eyesFreeBack")
                 }
-                .buttonStyle(.plain).disabled(!enabled)
-                .accessibilityIdentifier("eyesFreeBack")
             }
         }
         .foregroundStyle(Theme.label)
@@ -131,13 +139,13 @@ private struct JoystickControls: View {
                     guard enabled, scenePhase == .active, !ignoreUntilLift else { return }
                     let previous = input.direction
                     input.update(start: value.startLocation, location: value.location,
-                                 time: ProcessInfo.processInfo.systemUptime)
+                                 time: value.time.timeIntervalSinceReferenceDate)
                     if previous != input.direction { sender.hold(input.direction) }
                 }
                 .onEnded { value in
                     guard enabled, scenePhase == .active else { cancel(); return }
                     guard !ignoreUntilLift else { endContact(); return }
-                    let select = input.finish(location: value.location, time: ProcessInfo.processInfo.systemUptime)
+                    let select = input.finish(location: value.location, time: value.time.timeIntervalSinceReferenceDate)
                     sender.release()
                     if select { sender.press(.select) }
                 })

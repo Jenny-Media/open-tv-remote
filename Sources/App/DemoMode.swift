@@ -3,6 +3,7 @@ import Foundation
 
 /// Debug-only fake TV for App Store screenshots and UI work without touching a real TV.
 /// Launch with `-demo` (optionally `-padMode keyboard|keypad`, `-demoSheet apps|devices|keyboard|settings`).
+/// Simulator-only `-demoLiveActivity YES` opts in to the system Live Activity with the fake TV.
 @MainActor
 final class DemoDriver: TVDriver {
     let device: TVDevice

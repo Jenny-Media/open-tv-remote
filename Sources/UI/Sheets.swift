@@ -164,24 +164,7 @@ struct AppsSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
-                    ForEach(model.allApps, id: \.app.id) { entry in
-                        AppTile(app: entry.app, style: entry.style) {
-                            model.launch(entry.app)
-                            dismiss()
-                        }
-                        .frame(height: 72)
-                    }
-                }
-                .padding(20)
-                if model.installedApps == nil {
-                    Text("Your TV doesn't share its app list, so these are popular apps. Ones that aren't installed won't open.")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.secondary)
-                        .padding(.horizontal, 20)
-                }
-            }
+            TVAppGrid { dismiss() }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Apps")
             #if os(iOS)
@@ -197,5 +180,31 @@ struct AppsSheet: View {
         #if os(macOS)
         .frame(minWidth: 360, idealWidth: 380, maxWidth: 400, minHeight: 480)
         #endif
+    }
+}
+
+struct TVAppGrid: View {
+    @Environment(AppModel.self) private var model
+    var onLaunch: () -> Void
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                ForEach(model.allApps, id: \.app.id) { entry in
+                    AppTile(app: entry.app, style: entry.style) {
+                        model.launch(entry.app)
+                        onLaunch()
+                    }
+                    .frame(height: 72)
+                }
+            }
+            .padding(20)
+            if model.installedApps == nil {
+                Text("Your TV doesn't share its app list, so these are popular apps. Ones that aren't installed won't open.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.secondary)
+                    .padding(.horizontal, 20)
+            }
+        }
     }
 }
