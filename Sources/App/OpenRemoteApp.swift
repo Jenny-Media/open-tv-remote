@@ -34,8 +34,7 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         NavigationStack {
-            Pager()
-                .toolbar(.hidden)
+            pager
                 .jellyfinDestinations()
         }
             .safeAreaInset(edge: .bottom) { JellyfinStatusBar() }
@@ -70,6 +69,19 @@ struct RootView: View {
             }
     }
 
+    @ViewBuilder
+    private var pager: some View {
+        #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+        if #available(iOS 27.1, *) {
+            DuoPager()
+        } else {
+            Pager().toolbar(.hidden)
+        }
+        #else
+        Pager().toolbar(.hidden)
+        #endif
+    }
+
     private var pairingPresented: Binding<Bool> {
         Binding {
             if case .pairing = model.state { return true }
@@ -80,16 +92,30 @@ struct RootView: View {
     }
 }
 
+#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+@available(iOS 27.1, *)
+private struct DuoPager: View {
+    @Environment(\.toolbarVerticalEdge) private var toolbarEdge
+
+    var body: some View {
+        Pager(usesSystemToolbar: toolbarEdge != nil)
+    }
+}
+#endif
+
 /// The remote and the Watch page side by side; swipe (or use the switcher) to move between them.
 private struct Pager: View {
     @Environment(AppModel.self) private var model
     @AppStorage("page") private var stored = 0
     @State private var page: Int? = 0
+    var usesSystemToolbar = false
+
+    private var showsRemoteToolbar: Bool { usesSystemToolbar && (page ?? 0) == 0 }
 
     var body: some View {
         Group {
             if model.remoteControlMode.isGestureMode && (page ?? 0) == 0 {
-                RemoteScreen()
+                RemoteScreen(usesSystemToolbar: usesSystemToolbar)
             } else {
                 pages
             }
@@ -103,12 +129,15 @@ private struct Pager: View {
         .onAppear { page = stored }
         .onChange(of: page) { _, new in if let new { stored = new } }
         .onChange(of: stored) { _, new in if page != new { page = new } }
+        #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+        .modifier(DuoRemoteToolbar(isVisible: showsRemoteToolbar))
+        #endif
     }
 
     private var pages: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
-                RemoteScreen()
+                RemoteScreen(usesSystemToolbar: usesSystemToolbar)
                     .containerRelativeFrame(.horizontal)
                     .id(0)
                 WatchScreen()
@@ -124,6 +153,71 @@ private struct Pager: View {
 
     }
 }
+
+#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+private struct DuoRemoteToolbar: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let isVisible: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content
+                .toolbar {
+                    if isVisible {
+                        actions
+                    }
+                }
+                .toolbar(isVisible ? .visible : .automatic, for: .navigationBar)
+        } else {
+            content
+        }
+    }
+
+    @available(iOS 27.1, *)
+    @ToolbarContentBuilder
+    private var actions: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Power", systemImage: "power") { model.press(.power) }
+                .tint(Theme.power)
+                .contextMenu {
+                    if model.supports(.powerOff) {
+                        Button("Turn off TV", systemImage: "power") { model.press(.powerOff) }
+                    }
+                }
+        }
+        .axisBehavior(.verticalPreferred)
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Keyboard", systemImage: "keyboard") { model.showingKeyboard = true }
+        }
+
+        if model.current != nil {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("TV Apps", systemImage: "square.grid.2x2.fill") { model.showingApps = true }
+            }
+            .visibilityPriority(.low)
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Settings", systemImage: "gearshape.fill") { model.showingSettings = true }
+        }
+
+        if model.current != nil && model.remoteControlMode.isGestureMode {
+            ToolbarItemGroup(placement: .bottomBar) {
+                if model.supports(.volumeUp) {
+                    Button("Volume up", systemImage: "plus") { model.press(.volumeUp) }
+                        .buttonRepeatBehavior(.enabled)
+                }
+                if model.supports(.volumeDown) {
+                    Button("Volume down", systemImage: "minus") { model.press(.volumeDown) }
+                        .buttonRepeatBehavior(.enabled)
+                }
+            }
+        }
+    }
+}
+#endif
 
 struct PageSwitcher: View {
     static let height: CGFloat = 44

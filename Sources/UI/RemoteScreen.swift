@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RemoteScreen: View {
     @Environment(AppModel.self) private var model
+    var usesSystemToolbar = false
     private var mode: PadMode {
         switch model.remoteControlMode {
         case .keyboard: .keyboard
@@ -44,14 +45,16 @@ struct RemoteScreen: View {
                 HStack(alignment: .top, spacing: 0) {
                     remote(showHeader: !tabletop, tabletop: tabletop,
                            compactHeight: tabletop || layout.usesTrailingShortcuts,
-                           showsShortcuts: layout.arrangement != .book && !layout.usesTrailingShortcuts)
-                    if layout.usesTrailingShortcuts {
+                           showsShortcuts: !usesSystemToolbar && layout.arrangement != .book &&
+                               !layout.usesTrailingShortcuts)
+                    if !usesSystemToolbar && layout.usesTrailingShortcuts {
                         shortcutColumn()
                     }
                 }
                     // Recreate transient input when its hit targets move. The selected TV,
                     // navigation page, and mode live above this view.
                     .id(layout.arrangement)
+                    .id(usesSystemToolbar)
                     .id([layout.controls.minX, layout.controls.minY, layout.controls.width, layout.controls.height])
                     .frame(width: layout.controls.width, height: layout.controls.height)
                     .position(x: layout.controls.midX, y: layout.controls.midY)
@@ -65,7 +68,7 @@ struct RemoteScreen: View {
                             }
                             .padding(20)
                             .accessibilityIdentifier("remoteTVStatusPane")
-                        } else {
+                        } else if !usesSystemToolbar {
                             shortcutColumn()
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
@@ -76,6 +79,7 @@ struct RemoteScreen: View {
             }
             .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: layout.arrangement) { _, _ in heldHardwareKeys.removeAll() }
+            .onChange(of: usesSystemToolbar) { _, _ in heldHardwareKeys.removeAll() }
         }
     }
 
