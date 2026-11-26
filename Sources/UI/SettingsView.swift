@@ -5,6 +5,22 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingDevices = false
 
+    private var openSourceLicense: String {
+        guard let url = Bundle.main.url(forResource: "OpenRemote-LICENSE", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return "The MIT License is also available in the source repository’s LICENSE file."
+        }
+        return text
+    }
+
+    private var privacyPolicy: String {
+        guard let url = Bundle.main.url(forResource: "RemoteLab-Privacy", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return "The privacy policy is unavailable. Please contact the developer through TestFlight feedback."
+        }
+        return text
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -16,6 +32,20 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                #if os(iOS)
+                Section {
+                    Toggle("Show remote automatically", isOn: Binding {
+                        model.remoteActivity.options.automatic
+                    } set: {
+                        model.remoteActivity.setAutomatic($0, device: model.current)
+                    })
+                } header: {
+                    Text("Dynamic Island and Lock Screen")
+                } footer: {
+                    Text("Show a shortcut for your selected TV. After dismissing it, select a TV or turn this setting off and on to show it again.")
+                }
+                #endif
 
                 JellyfinSettingsSection()
 
@@ -56,11 +86,34 @@ struct SettingsView: View {
                         Label("Free and open source", systemImage: "heart.fill")
                             .font(.headline)
                             .foregroundStyle(Theme.accent)
-                        Text("No subscriptions, no trials, no ads, no tracking, no account. Open Remote talks directly to your TV over your Wi-Fi and nothing leaves your home network.")
+                        Text("Remote Lab is an independent fork of Open TV Remote by Nathan Butler, released under the MIT License. No ads, analytics or tracking. TV commands stay on your local network; saved TV details and interface preferences can sync through your iCloud account. TV pairing credentials are excluded from settings sync. Optional Jellyfin sign-in tokens can sync through iCloud Keychain.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Link("View the source on GitHub", destination: URL(string: "https://github.com/iamnbutler/open-tv-remote")!)
+                        Link("View the fork on GitHub", destination: URL(string: "https://github.com/xcv58/open-tv-remote")!)
                             .font(.footnote.weight(.semibold))
+                        Link("Original project by Nathan Butler", destination: URL(string: "https://github.com/iamnbutler/open-tv-remote")!)
+                            .font(.footnote)
+                        NavigationLink("Privacy policy") {
+                            ScrollView {
+                                Text(privacyPolicy)
+                                    .font(.body)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding()
+                            }
+                            .navigationTitle("Privacy")
+                        }
+                        .font(.footnote)
+                        NavigationLink("Open-source license") {
+                            ScrollView {
+                                Text(openSourceLicense)
+                                    .font(.footnote.monospaced())
+                                    .textSelection(.enabled)
+                                    .padding()
+                            }
+                            .navigationTitle("MIT License")
+                        }
+                        .font(.footnote)
                     }
                     .padding(.vertical, 4)
                 }
