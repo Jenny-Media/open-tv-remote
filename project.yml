@@ -2,12 +2,16 @@ name: OpenRemote
 options:
   bundleIdPrefix: media.jenny
   createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+  CloudRelease: release
 settings:
   base:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: 5736QK4NZX
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.3.1"
+    MARKETING_VERSION: "1.3.2"
     CURRENT_PROJECT_VERSION: "10"
     REMOTE_URL_SCHEME: remotelab
     REMOTE_ACTIVITY_BUNDLE_IDENTIFIER: media.jenny.remotelab.remoteactivity
@@ -112,6 +116,12 @@ schemes:
     build:
       targets:
         OpenRemote: all
+  OpenRemoteCloud:
+    build:
+      targets:
+        OpenRemote: all
+    archive:
+      config: CloudRelease
   OpenRemoteEyesFreeQA:
     build:
       targets:
