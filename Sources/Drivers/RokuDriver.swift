@@ -13,6 +13,7 @@ final class RokuDriver: TVDriver {
     /// Keypresses must arrive in order, so they go through one serial chain.
     private var queue: Task<Void, Never>?
     private var generation = 0
+    private var isTV = false
 
     init(device: TVDevice) {
         self.device = device
@@ -29,6 +30,7 @@ final class RokuDriver: TVDriver {
                 state = .failed("Couldn't reach the Roku. Is it on and on the same Wi-Fi?")
                 return
             }
+            isTV = XMLText.first("is-tv", in: data) == "true"
             if let name = XMLText.first("user-device-name", in: data) ?? XMLText.first("friendly-device-name", in: data),
                name != device.name {
                 device.name = name
@@ -48,16 +50,16 @@ final class RokuDriver: TVDriver {
         state = .idle
     }
 
-    func supports(_ key: RemoteKey) -> Bool { Self.keyName(key) != nil }
+    func supports(_ key: RemoteKey) -> Bool { keyName(key) != nil }
 
     func send(_ key: RemoteKey) {
-        guard let name = Self.keyName(key) else { return }
+        guard let name = keyName(key) else { return }
         enqueue("keypress/\(name)")
     }
 
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
         guard state == .connected, !request.isCancelled, !Task.isCancelled,
-              let name = Self.keyName(key) else { return }
+              let name = keyName(key) else { return }
         let operation = enqueue("keypress/" + name, request: request)
         await withTaskCancellationHandler {
             await operation.value
@@ -114,7 +116,7 @@ final class RokuDriver: TVDriver {
         return operation
     }
 
-    private static func keyName(_ key: RemoteKey) -> String? {
+    private func keyName(_ key: RemoteKey) -> String? {
         switch key {
         case .power: "Power"
         case .powerOff: nil
@@ -126,7 +128,7 @@ final class RokuDriver: TVDriver {
         case .back: "Back"
         case .home, .exit: "Home"
         case .menu, .info: "Info"
-        case .input: "InputTuner"
+        case .input: isTV ? "InputTuner" : nil
         case .search: "Search"
         case .volumeUp: "VolumeUp"
         case .volumeDown: "VolumeDown"

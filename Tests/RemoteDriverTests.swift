@@ -26,12 +26,32 @@ struct RemoteDriverTests {
         LocalHTTP.reset()
     }
 
-    private func connectedRoku() async -> RokuDriver {
+    private func connectedRoku(isTV: Bool? = nil) async -> RokuDriver {
         LocalHTTP.reset()
+        if let isTV {
+            LocalHTTP.deviceInfo = Data("<device-info><is-tv>\(isTV)</is-tv></device-info>".utf8)
+        }
         let driver = RokuDriver(device: TVDevice(name: "Test Roku", brand: .roku, host: "192.0.2.10"))
         driver.connect()
         await waitUntil { driver.state == .connected }
         return driver
+    }
+
+    @Test(arguments: [nil, false, true] as [Bool?]) func rokuOnlySendsTunerCommandsToTVs(_ isTV: Bool?) async {
+        let driver = await connectedRoku(isTV: isTV)
+        #expect(driver.supports(.input) == (isTV == true))
+        driver.send(.input)
+        if isTV == true {
+            await waitUntil { LocalHTTP.started == ["/keypress/InputTuner"] }
+            LocalHTTP.complete("/keypress/InputTuner")
+        } else {
+            // A following supported command acts as a barrier in the same queue.
+            driver.send(.back)
+            await waitUntil { !LocalHTTP.started.isEmpty }
+            #expect(LocalHTTP.started == ["/keypress/Back"])
+            if let path = LocalHTTP.started.first { LocalHTTP.complete(path) }
+        }
+        driver.disconnect()
     }
 
     @Test func rokuReportsTimeoutAfterDirectionalLift() async {

@@ -59,9 +59,10 @@ final class JoystickUITests: XCTestCase {
     }
 
     func testBookControlsSwapSidesAndRememberTheMainRemote() throws {
+        try requireDuoPosture("book")
         launch()
         let swap = app.buttons["bookSwapSides"]
-        guard swap.exists else { throw XCTSkip("Requires iPhone Duo in Book posture.") }
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
 
         let remoteStartedOnLeft = stick.frame.midX < swap.frame.midX
         swap.tap()
@@ -86,10 +87,26 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(log.label, "0:None")
     }
 
+    func testBookPlaybackRepeatsWaitForThePreviousRequestAndStopOnRelease() throws {
+        try requireDuoPosture("book")
+        launch(additionalArguments: ["-demoInteractiveDelayMS", "900"])
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        forward.press(forDuration: 1.0)
+        XCTAssertEqual(log.label, "2:Fast forward")
+
+        let unexpectedRepeat = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.count > 2
+        }, object: nil)
+        unexpectedRepeat.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [unexpectedRepeat], timeout: 0.5), .completed)
+    }
+
     func testTabletopShowsTVStatusAboveTheRemoteAndPlayback() throws {
+        try requireDuoPosture("tabletop")
         launch(additionalArguments: ["-demoForegroundApp", "YouTube"])
         let tv = app.buttons["tabletopTVSelection"]
-        guard tv.exists else { throw XCTSkip("Requires iPhone Duo in Tabletop posture.") }
+        XCTAssertTrue(tv.waitForExistence(timeout: 5))
 
         XCTAssertTrue(tv.label.contains("Living Room TV"))
         XCTAssertTrue(tv.label.contains("Connected"))
@@ -104,6 +121,29 @@ final class JoystickUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["Apps"].exists)
         play.tap()
         XCTAssertEqual(log.label, "1:Play or pause")
+
+        selectMode("keyboard", title: "Keyboard")
+        XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5))
+        XCTAssertTrue(play.isHittable)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        play.tap()
+    }
+
+    func testFlatLandscapeEnlargesTheDirectionalPad() throws {
+        try requireDuoPosture("flat-landscape")
+        launch(openMode: false, additionalArguments: ["-padMode", "standard"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        // The old 340-point pad cap limited OK to 136 points.
+        XCTAssertGreaterThanOrEqual(ok.frame.width, 140)
+        XCTAssertTrue(ok.isHittable)
+    }
+
+    private func requireDuoPosture(_ posture: String) throws {
+        guard ProcessInfo.processInfo.environment["OPEN_REMOTE_DUO_POSTURE"] == posture else {
+            throw XCTSkip("Select the Duo posture and set TEST_RUNNER_OPEN_REMOTE_DUO_POSTURE=\(posture) in xcodebuild's environment.")
+        }
     }
 
     func testTVAppsStaysOpenWhenPairingIsRequired() {

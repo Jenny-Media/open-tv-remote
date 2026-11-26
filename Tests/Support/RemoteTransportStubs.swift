@@ -39,9 +39,10 @@ final class LocalWebSocket {
 enum LocalHTTP {
     static var started: [String] = []
     static var completions: [String: CheckedContinuation<Int?, Never>] = [:]
+    static var deviceInfo = Data("<device-info/>".utf8)
 
     static func get(_ url: URL, timeout: TimeInterval = 3) async -> Data? {
-        Data("<device-info/>".utf8)
+        deviceInfo
     }
     static func post(_ url: URL, body: Data? = nil, timeout: TimeInterval = 3) async -> Int? {
         started.append(url.path)
@@ -54,11 +55,14 @@ enum LocalHTTP {
         for completion in completions.values { completion.resume(returning: nil) }
         completions = [:]
         started = []
+        deviceInfo = Data("<device-info/>".utf8)
     }
 }
 
 enum XMLText {
-    static func first(_ tag: String, in data: Data) -> String? { nil }
+    static func first(_ tag: String, in data: Data) -> String? {
+        try? XMLDocument(data: data).rootElement()?.elements(forName: tag).first?.stringValue
+    }
 }
 
 enum JSON {

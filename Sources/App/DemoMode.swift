@@ -29,6 +29,10 @@ final class DemoDriver: TVDriver {
     func disconnect() {}
     func supports(_ key: RemoteKey) -> Bool { true }
     func send(_ key: RemoteKey) {}
+    func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
+        let delay = UserDefaults.standard.integer(forKey: "demoInteractiveDelayMS")
+        if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
+    }
     func sendText(_ text: String) {}
     func launch(_ app: TVApp) {}
     func installedApps() async -> [TVApp]? { DemoMode.artworkApps }

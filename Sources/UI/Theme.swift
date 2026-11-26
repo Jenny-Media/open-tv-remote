@@ -98,13 +98,17 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     /// If set, a short tap fires `action` on release and holding fires this instead.
     var holdAction: (() -> Void)? = nil
     var holdName = "Hold"
+    var repeatAction: ((RemoteInputRequest) async -> Void)? = nil
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
     /// GestureState resets itself when the system cancels a touch (calls, Control Center,
     /// a sheet appearing) — unlike onEnded, which never fires in that case.
     @GestureState private var pressed = false
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.isEnabled) private var isEnabled
     @State private var repeatTask: Task<Void, Never>?
+    @State private var repeatRequest: RemoteInputRequest?
     @State private var held = false
     #if os(iOS)
     @State private var holdHighlighted = false
@@ -151,7 +155,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                     }
             )
             .onChange(of: pressed) { _, isPressed in
-                repeatTask?.cancel()
+                stopRepeating()
                 guard isPressed else { return }
                 if let holdAction {
                     held = false
@@ -167,7 +171,13 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                 fire()
                 if repeats { startRepeating() }
             }
-            .onDisappear { repeatTask?.cancel() }
+            .onChange(of: scenePhase) { _, phase in
+                if repeatAction != nil && phase != .active { stopRepeating() }
+            }
+            .onChange(of: isEnabled) { _, enabled in
+                if repeatAction != nil && !enabled { stopRepeating() }
+            }
+            .onDisappear { stopRepeating() }
     }
 
     private func face(pressed: Bool) -> some View {
@@ -186,15 +196,29 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     private func startRepeating() {
-        repeatTask?.cancel()
+        let request = repeatAction.map { _ in RemoteInputRequest(isRepeat: true, feedback: .soft) }
+        repeatRequest = request
         repeatTask = Task { @MainActor in
+            let deadline = ContinuousClock.now + .seconds(8)
             try? await Task.sleep(for: .milliseconds(420))
             // Belt and braces: never auto-repeat for more than ~8 seconds.
-            for _ in 0..<70 where !Task.isCancelled {
-                fire()
+            for _ in 0..<70 {
+                guard !Task.isCancelled, request?.isCancelled != true, ContinuousClock.now < deadline else { return }
+                if let repeatAction, let request {
+                    await repeatAction(request)
+                } else {
+                    fire()
+                }
                 try? await Task.sleep(for: .milliseconds(110))
             }
         }
+    }
+
+    private func stopRepeating() {
+        repeatRequest?.cancel()
+        repeatRequest = nil
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 }
 
@@ -282,9 +306,11 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
 
 extension KeyCap where S == RoundedRectangle {
     init(repeats: Bool = false, tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,
+         repeatAction: ((RemoteInputRequest) async -> Void)? = nil,
          action: @escaping () -> Void, @ViewBuilder label: @escaping () -> Label) {
         self.init(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous), repeats: repeats, tint: tint,
-                  enabled: enabled, accessibilityLabel: accessibilityLabel, action: action, label: label)
+                  enabled: enabled, accessibilityLabel: accessibilityLabel, repeatAction: repeatAction,
+                  action: action, label: label)
     }
 }
 

@@ -180,7 +180,7 @@ struct RemoteScreen: View {
             if showHeader { StatusBanner() }
             switch model.remoteControlMode {
             case .standard, .keyboard, .keypad:
-                standardMode(compactHeight: compactHeight, book: book, wide: wide)
+                standardMode(compactHeight: compactHeight, tabletop: tabletop, book: book, wide: wide)
             case .eyesFree:
                 JoystickScreen(compactHeight: compactHeight, showsTabletopControls: tabletop)
             case .cursor:
@@ -193,9 +193,13 @@ struct RemoteScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func standardMode(compactHeight: Bool, book: Bool, wide: Bool) -> some View {
+    private func standardMode(compactHeight: Bool, tabletop: Bool, book: Bool, wide: Bool) -> some View {
         RemoteModeLayout { navRow } controls: {
-            if compactHeight && mode != .keyboard {
+            if tabletop && mode == .keyboard && model.current != nil {
+                tabletopKeyboard
+            } else if wide && mode == .dpad {
+                wideDirectionalControls
+            } else if compactHeight && mode != .keyboard {
                 ScrollView {
                     HStack(alignment: .top, spacing: 16) {
                         pad.frame(height: 192)
@@ -208,6 +212,38 @@ struct RemoteScreen: View {
             } else {
                 standardControls(book: book, wide: wide)
             }
+        }
+    }
+
+    private var tabletopKeyboard: some View {
+        GeometryReader { geo in
+            let layout = geo.size.width >= 500
+                ? AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+                : AnyLayout(VStackLayout(spacing: 16))
+            ScrollView {
+                layout {
+                    KeyboardPadView().frame(height: max(300, geo.size.height))
+                    DuoQuickControls().frame(width: 176)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var wideDirectionalControls: some View {
+        GeometryReader { geo in
+            let size = min(380, max(170, geo.size.height - 24), geo.size.width * 0.55)
+            ScrollView {
+                HStack(spacing: 24) {
+                    DPadView().frame(width: size, height: size)
+                    controls(book: false).frame(maxWidth: 340)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         }
     }
 
@@ -371,19 +407,21 @@ struct DuoQuickControls: View {
     ]
 
     var body: some View {
-        if model.current != nil {
+        if let device = model.current {
             VStack(spacing: 12) {
                 group("Volume", keys: volume)
                 group("Playback", keys: playback)
                 if showsInput && model.supports(.input) {
-                    KeyCap(accessibilityLabel: "Input") { model.press(.input) } label: {
-                        Label("Input", systemImage: "rectangle.portrait.and.arrow.right")
+                    let title = device.brand == .roku ? "TV Tuner" : "Input"
+                    KeyCap(accessibilityLabel: title) { model.press(.input) } label: {
+                        Label(title, systemImage: "rectangle.portrait.and.arrow.right")
                             .font(.subheadline.weight(.semibold))
                     }
                     .frame(height: 48)
                     .disabled(!model.remoteCommandsAvailable)
                 }
             }
+            .id(device.id)
         }
     }
 
@@ -395,7 +433,16 @@ struct DuoQuickControls: View {
                     .accessibilityAddTraits(.isHeader)
                 HStack(spacing: 8) {
                     ForEach(supported, id: \.key) { item in
-                        RemoteKeyButton(key: item.key, symbol: item.symbol, repeats: item.repeats)
+                        KeyCap(repeats: item.repeats, accessibilityLabel: item.key.accessibilityName,
+                               repeatAction: { request in
+                            guard model.remoteInputAvailable else { request.cancel(); return }
+                            Haptics.tick()
+                            await model.pressInteractively(item.key, request: request)
+                        }) {
+                            model.press(item.key)
+                        } label: {
+                            Image(systemName: item.symbol).font(.system(size: 19, weight: .semibold))
+                        }
                     }
                 }
                 .frame(height: 48)
