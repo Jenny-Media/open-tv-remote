@@ -9,6 +9,8 @@ final class AppModel: TVDriverDelegate {
     private(set) var state: ConnectionState = .idle
     private(set) var supportsCursor = false
     private(set) var installedApps: [TVApp]?
+    private var reportedForegroundApp: String?
+    var foregroundAppName: String? { state.isConnected ? reportedForegroundApp : nil }
     /// True while we search the network for a saved TV that stopped answering at its old address.
     private(set) var isRelocating = false
 
@@ -75,7 +77,10 @@ final class AppModel: TVDriverDelegate {
     let jellyfin = JellyfinStore()
 
     @ObservationIgnored private var driver: TVDriver? {
-        didSet { supportsCursor = driver?.supportsCursor == true }
+        didSet {
+            supportsCursor = driver?.supportsCursor == true
+            reportedForegroundApp = nil
+        }
     }
     @ObservationIgnored private var relocateTask: Task<Void, Never>?
     @ObservationIgnored private var relocationAttempted = false
@@ -93,6 +98,7 @@ final class AppModel: TVDriverDelegate {
             self.driver = driver
             supportsCursor = driver.supportsCursor
             state = driver.state
+            reportedForegroundApp = DemoMode.foregroundAppName
             if UserDefaults.standard.bool(forKey: "demoEyesFree") { remoteControlMode = .eyesFree }
             else if let raw = UserDefaults.standard.string(forKey: "padMode"),
                     let mode = RemoteControlMode(rawValue: raw) { remoteControlMode = mode }
@@ -537,5 +543,15 @@ final class AppModel: TVDriverDelegate {
         guard let i = devices.firstIndex(where: { $0.id == device.id }) else { return }
         devices[i] = device
         DeviceStore.save(devices)
+    }
+
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?) {
+        guard driver === self.driver else { return }
+        reportedForegroundApp = switch package {
+        case "com.google.android.youtube.tv": "YouTube"
+        case "com.netflix.ninja": "Netflix"
+        case let package?: CatalogApp.all.first { $0.androidLink == "market://launch?id=\(package)" }?.name
+        case nil: nil
+        }
     }
 }

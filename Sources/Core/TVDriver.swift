@@ -38,6 +38,11 @@ protocol TVDriverDelegate: AnyObject {
     func driver(_ driver: TVDriver, didChangeState state: ConnectionState)
     /// Called when the driver learns something worth persisting (tokens, names, pairing).
     func driver(_ driver: TVDriver, didUpdateDevice device: TVDevice)
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?)
+}
+
+extension TVDriverDelegate {
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?) {}
 }
 
 @MainActor

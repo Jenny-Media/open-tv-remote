@@ -58,6 +58,54 @@ final class JoystickUITests: XCTestCase {
         XCTAssertFalse(apps.exists)
     }
 
+    func testBookControlsSwapSidesAndRememberTheMainRemote() throws {
+        launch()
+        let swap = app.buttons["bookSwapSides"]
+        guard swap.exists else { throw XCTSkip("Requires iPhone Duo in Book posture.") }
+
+        let remoteStartedOnLeft = stick.frame.midX < swap.frame.midX
+        swap.tap()
+        defer {
+            if swap.isHittable && (stick.frame.midX < swap.frame.midX) != remoteStartedOnLeft { swap.tap() }
+        }
+        XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(log.label, "0:None")
+        XCTAssertTrue(app.staticTexts["Volume"].isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
+        app.buttons["Volume up"].tap()
+        XCTAssertEqual(log.label, "1:Volume up")
+        XCTAssertFalse(app.navigationBars["Apps"].exists)
+        app.buttons["TV Apps"].tap()
+        XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 5))
+        app.navigationBars["Apps"].buttons["Done"].tap()
+
+        app.terminate()
+        launch()
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(log.label, "0:None")
+    }
+
+    func testTabletopShowsTVStatusAboveTheRemoteAndPlayback() throws {
+        launch(additionalArguments: ["-demoForegroundApp", "YouTube"])
+        let tv = app.buttons["tabletopTVSelection"]
+        guard tv.exists else { throw XCTSkip("Requires iPhone Duo in Tabletop posture.") }
+
+        XCTAssertTrue(tv.label.contains("Living Room TV"))
+        XCTAssertTrue(tv.label.contains("Connected"))
+        XCTAssertTrue(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.isHittable)
+        let play = app.buttons["Play or pause"]
+        let volume = app.buttons["Volume down"]
+        XCTAssertTrue(play.isHittable)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertGreaterThan(stick.frame.midY, tv.frame.midY)
+        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        XCTAssertGreaterThan(volume.frame.midY, tv.frame.midY)
+        XCTAssertFalse(app.navigationBars["Apps"].exists)
+        play.tap()
+        XCTAssertEqual(log.label, "1:Play or pause")
+    }
+
     func testTVAppsStaysOpenWhenPairingIsRequired() {
         launch(additionalArguments: ["-demoUnpaired", "YES"])
         app.buttons["TV Apps"].tap()

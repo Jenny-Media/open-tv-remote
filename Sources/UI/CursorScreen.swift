@@ -8,11 +8,14 @@ struct CursorScreen: View {
     @AppStorage("page") private var page = 0
 
     var compactHeight = false
+    var wide = false
+    var showsTabletopControls = false
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
-                       sessionID: model.currentID, compactHeight: compactHeight,
+                       sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
+                       showsTabletopControls: showsTabletopControls,
                        mode: Binding(get: { model.remoteControlMode }, set: {
                            Haptics.tap(); model.selectRemoteMode($0)
                        }), modes: model.availableRemoteModes) { command, request in
@@ -42,16 +45,21 @@ private struct CursorControls: View {
     let enabled: Bool
     let sessionID: String?
     let compactHeight: Bool
+    let wide: Bool
+    let showsTabletopControls: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
+         wide: Bool = false, showsTabletopControls: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
         self.enabled = enabled
         self.sessionID = sessionID
         self.compactHeight = compactHeight
+        self.wide = wide
+        self.showsTabletopControls = showsTabletopControls
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -86,7 +94,7 @@ private struct CursorControls: View {
         }
         .foregroundStyle(Theme.label)
         .padding(.bottom, 12)
-        .frame(maxWidth: 600, maxHeight: .infinity)
+        .frame(maxWidth: wide ? .infinity : 600, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: enabled) { _, _ in sender.stop() }
@@ -98,6 +106,7 @@ private struct CursorControls: View {
     private var settingsScroll: some View {
         ScrollView {
             VStack(spacing: 16) {
+                if showsTabletopControls { DuoQuickControls() }
                 instructions
                 preferences
                 actions

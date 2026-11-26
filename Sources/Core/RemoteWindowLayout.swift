@@ -10,12 +10,13 @@ struct RemoteWindowLayout {
     let controls: CGRect
     let companion: CGRect?
     let arrangement: Arrangement
+    let hasWideFlatSurface: Bool
 
     var usesTrailingShortcuts: Bool {
         arrangement != .book && controls.width >= 440 && controls.height < 440 && controls.width > controls.height
     }
 
-    init(size: CGSize, division: CGRect?, occlusions: [CGRect] = []) {
+    init(size: CGSize, division: CGRect?, occlusions: [CGRect] = [], bookRemoteOnRight: Bool = false) {
         let window = CGRect(origin: .zero, size: size)
         let fold = division?.intersection(window)
         let horizontalFold = division.map { $0.width > $0.height } ?? false
@@ -31,9 +32,11 @@ struct RemoteWindowLayout {
             arrangement = .tabletop
         } else if let fold, !fold.isNull, !horizontalFold,
                   fold.minX >= 210, window.maxX - fold.maxX >= 210 {
-            remote = CGRect(x: 0, y: 0, width: fold.minX - spacing / 2, height: size.height)
-            extra = CGRect(x: fold.maxX + spacing / 2, y: 0,
-                           width: size.width - fold.maxX - spacing / 2, height: size.height)
+            let left = CGRect(x: 0, y: 0, width: fold.minX - spacing / 2, height: size.height)
+            let right = CGRect(x: fold.maxX + spacing / 2, y: 0,
+                               width: size.width - fold.maxX - spacing / 2, height: size.height)
+            remote = bookRemoteOnRight ? right : left
+            extra = bookRemoteOnRight ? left : right
             arrangement = .book
         } else if let fold, !fold.isNull {
             // A narrow Split View can include only one usable side of the fold.
@@ -61,6 +64,8 @@ struct RemoteWindowLayout {
         controls = Self.avoiding(occlusions, in: remote)
         companion = extra.map { Self.avoiding(occlusions, in: $0) }
         self.arrangement = arrangement
+        hasWideFlatSurface = division == nil && controls.width >= 640 && controls.height >= 440 &&
+            controls.width > controls.height
     }
 
     /// Reserved camera regions can appear while the window keeps the same size.

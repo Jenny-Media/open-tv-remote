@@ -12,6 +12,9 @@ struct RemoteScreen: View {
     }
     @FocusState private var focused: Bool
     @State private var heldHardwareKeys: Set<Character> = []
+    #if os(iOS)
+    @AppStorage("duo.bookRemoteOnRight") private var bookRemoteOnRight = false
+    #endif
 
     var body: some View {
         Group {
@@ -40,15 +43,16 @@ struct RemoteScreen: View {
         GeometryReader { geometry in
             let layout = windowLayout(in: geometry)
             let tabletop = layout.arrangement == .tabletop
+            let book = layout.arrangement == .book
+            let wide = usesSystemToolbar && layout.hasWideFlatSurface
 
             ZStack {
                 HStack(alignment: .top, spacing: 0) {
-                    remote(showHeader: !tabletop, tabletop: tabletop,
+                    remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
                            compactHeight: tabletop || layout.usesTrailingShortcuts,
-                           showsShortcuts: !usesSystemToolbar && layout.arrangement != .book &&
-                               !layout.usesTrailingShortcuts)
+                           showsShortcuts: !usesSystemToolbar && !book && !layout.usesTrailingShortcuts)
                     if !usesSystemToolbar && layout.usesTrailingShortcuts {
-                        shortcutColumn()
+                        shortcutColumn(showsVolume: !tabletop)
                     }
                 }
                     // Recreate transient input when its hit targets move. The selected TV,
@@ -62,21 +66,17 @@ struct RemoteScreen: View {
                 if let companion = layout.companion {
                     Group {
                         if tabletop {
-                            VStack(spacing: 12) {
-                                TVSelectionButton(prominent: true)
-                                StatusBanner()
-                            }
-                            .padding(20)
-                            .accessibilityIdentifier("remoteTVStatusPane")
-                        } else if !usesSystemToolbar {
-                            shortcutColumn()
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            tabletopStatus
+                        } else {
+                            bookControls
                         }
                     }
+                    .id([companion.minX, companion.minY, companion.width, companion.height])
                     .frame(width: companion.width, height: companion.height)
                     .position(x: companion.midX, y: companion.midY)
                 }
             }
+            .preference(key: RemotePaneControlsKey.self, value: book || tabletop)
             .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: layout.arrangement) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: usesSystemToolbar) { _, _ in heldHardwareKeys.removeAll() }
@@ -89,17 +89,73 @@ struct RemoteScreen: View {
         if #available(iOS 27.1, *) {
             return RemoteWindowLayout(size: geometry.size,
                                       division: geometry.reservedRegions(kind: .division).first?.frame,
-                                      occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame))
+                                      occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame),
+                                      bookRemoteOnRight: bookRemoteOnRight)
         }
         #endif
         return RemoteWindowLayout(size: geometry.size, division: nil)
     }
 
-    private func shortcutColumn() -> some View {
+    private var bookControls: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if !usesSystemToolbar {
+                    ViewThatFits(in: .horizontal) {
+                        TopBar(showsTVSelection: false).fixedSize(horizontal: true, vertical: false)
+                        TopBar(showsTVSelection: false, vertical: true)
+                    }
+                }
+                DuoQuickControls(showsInput: true)
+                Button {
+                    Haptics.tap()
+                    bookRemoteOnRight.toggle()
+                } label: {
+                    Label("Swap Sides", systemImage: "arrow.left.arrow.right")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint(bookRemoteOnRight ? "Move the main remote to the left" : "Move the main remote to the right")
+                .accessibilityIdentifier("bookSwapSides")
+            }
+            .frame(maxWidth: 300)
+            .padding(16)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var tabletopStatus: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 12) {
+                    TVSelectionButton(prominent: true)
+                        .accessibilityIdentifier("tabletopTVSelection")
+                    if let appName = model.foregroundAppName {
+                        Label(appName, systemImage: "play.tv")
+                            .font(.headline)
+                            .foregroundStyle(Theme.secondary)
+                            .accessibilityLabel("Active app, \(appName)")
+                            .accessibilityIdentifier("tabletopForegroundApp")
+                    }
+                    StatusBanner()
+                }
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .accessibilityIdentifier("remoteTVStatusPane")
+    }
+
+    private func shortcutColumn(showsVolume: Bool) -> some View {
         ScrollView {
             VStack(spacing: 12) {
                 TopBar(showsTVSelection: false, vertical: true)
-                if model.current != nil && model.remoteControlMode.isGestureMode &&
+                if showsVolume && model.current != nil && model.remoteControlMode.isGestureMode &&
                     (model.supports(.volumeUp) || model.supports(.volumeDown)) {
                     volume.frame(height: 124)
                 }
@@ -113,7 +169,7 @@ struct RemoteScreen: View {
     }
     #endif
 
-    private func remote(showHeader: Bool, tabletop: Bool, compactHeight: Bool = false,
+    private func remote(showHeader: Bool, tabletop: Bool, book: Bool = false, wide: Bool = false, compactHeight: Bool = false,
                         showsShortcuts: Bool = true) -> some View {
         VStack(spacing: compactHeight ? 6 : 12) {
             if showsShortcuts {
@@ -123,36 +179,39 @@ struct RemoteScreen: View {
             }
             if showHeader { StatusBanner() }
             switch model.remoteControlMode {
-            case .standard, .keyboard, .keypad: standardMode(compactHeight: compactHeight)
-            case .eyesFree: JoystickScreen(compactHeight: compactHeight)
-            case .cursor: CursorScreen(compactHeight: compactHeight)
+            case .standard, .keyboard, .keypad:
+                standardMode(compactHeight: compactHeight, book: book, wide: wide)
+            case .eyesFree:
+                JoystickScreen(compactHeight: compactHeight, showsTabletopControls: tabletop)
+            case .cursor:
+                CursorScreen(compactHeight: compactHeight, wide: wide, showsTabletopControls: tabletop)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .frame(maxWidth: tabletop || compactHeight ? .infinity : 600)
+        .frame(maxWidth: wide || compactHeight ? .infinity : 600)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func standardMode(compactHeight: Bool) -> some View {
+    private func standardMode(compactHeight: Bool, book: Bool, wide: Bool) -> some View {
         RemoteModeLayout { navRow } controls: {
             if compactHeight && mode != .keyboard {
                 ScrollView {
                     HStack(alignment: .top, spacing: 16) {
                         pad.frame(height: 192)
-                        controls
+                        controls(book: book)
                     }
                     .padding(.horizontal, 5)
                     .padding(.bottom, 12)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             } else {
-                standardControls
+                standardControls(book: book, wide: wide)
             }
         }
     }
 
-    private var standardControls: some View {
+    private func standardControls(book: Bool, wide: Bool) -> some View {
         GeometryReader { geo in
             let spacing: CGFloat = geo.size.height < 620 ? 10 : 18
             let fixed: CGFloat = 192 + spacing * 2 + 28
@@ -164,10 +223,10 @@ struct RemoteScreen: View {
                     pad
                         .frame(height: padHeight)
                         .padding(.vertical, 4)
-                    if mode != .keyboard { controls }
+                    if mode != .keyboard { controls(book: book) }
                 }
                 .padding(.bottom, 20)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: wide ? geo.size.width * 0.88 : 440)
                 .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -190,29 +249,35 @@ struct RemoteScreen: View {
         }
     }
 
-    private var controls: some View {
+    private func controls(book: Bool) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 VStack(spacing: 12) {
                     RemoteKeyButton(key: .menu, symbol: "line.3.horizontal")
                     RemoteKeyButton(key: .info, symbol: "info.circle")
                 }
-                VStack(spacing: 12) {
-                    RemoteKeyButton(key: .input, symbol: "rectangle.portrait.and.arrow.right")
+                if book {
                     RemoteKeyButton(key: .search, symbol: "magnifyingglass")
+                } else {
+                    VStack(spacing: 12) {
+                        RemoteKeyButton(key: .input, symbol: "rectangle.portrait.and.arrow.right")
+                        RemoteKeyButton(key: .search, symbol: "magnifyingglass")
+                    }
                 }
                 Rocker(label: "CH", up: .channelUp, down: .channelDown, upSymbol: "chevron.up", downSymbol: "chevron.down")
-                volume
+                if !book { volume }
             }
             .frame(height: 124)
 
-            HStack(spacing: 12) {
-                RemoteKeyButton(key: .rewind, symbol: "backward.fill", repeats: true)
-                RemoteKeyButton(key: .playPause, symbol: "playpause.fill")
-                RemoteKeyButton(key: .fastForward, symbol: "forward.fill", repeats: true)
-                RemoteKeyButton(key: .mute, symbol: "speaker.slash.fill")
+            if !book {
+                HStack(spacing: 12) {
+                    RemoteKeyButton(key: .rewind, symbol: "backward.fill", repeats: true)
+                    RemoteKeyButton(key: .playPause, symbol: "playpause.fill")
+                    RemoteKeyButton(key: .fastForward, symbol: "forward.fill", repeats: true)
+                    RemoteKeyButton(key: .mute, symbol: "speaker.slash.fill")
+                }
+                .frame(height: 56)
             }
-            .frame(height: 56)
         }
     }
 
@@ -281,6 +346,62 @@ struct RemoteScreen: View {
             model.type(press.characters)
         }
         return .handled
+    }
+}
+
+#if os(iOS)
+struct RemotePaneControlsKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+#endif
+
+struct DuoQuickControls: View {
+    @Environment(AppModel.self) private var model
+    var showsInput = false
+
+    private let volume: [(key: RemoteKey, symbol: String, repeats: Bool)] = [
+        (.volumeDown, "minus", true), (.mute, "speaker.slash.fill", false), (.volumeUp, "plus", true),
+    ]
+    private let playback: [(key: RemoteKey, symbol: String, repeats: Bool)] = [
+        (.rewind, "backward.fill", true), (.playPause, "playpause.fill", false), (.fastForward, "forward.fill", true),
+    ]
+
+    var body: some View {
+        if model.current != nil {
+            VStack(spacing: 12) {
+                group("Volume", keys: volume)
+                group("Playback", keys: playback)
+                if showsInput && model.supports(.input) {
+                    KeyCap(accessibilityLabel: "Input") { model.press(.input) } label: {
+                        Label("Input", systemImage: "rectangle.portrait.and.arrow.right")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(height: 48)
+                    .disabled(!model.remoteCommandsAvailable)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func group(_ title: String, keys: [(key: RemoteKey, symbol: String, repeats: Bool)]) -> some View {
+        let supported = keys.filter { model.supports($0.key) }
+        if !supported.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondary)
+                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: 8) {
+                    ForEach(supported, id: \.key) { item in
+                        RemoteKeyButton(key: item.key, symbol: item.symbol, repeats: item.repeats)
+                    }
+                }
+                .frame(height: 48)
+                .disabled(!model.remoteCommandsAvailable)
+            }
+        }
     }
 }
 
@@ -361,7 +482,7 @@ private struct TVSelectionButton: View {
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Theme.secondary)
                 }
-                StatusLine()
+                StatusLine(prominent: prominent)
             }
             .foregroundStyle(Theme.label)
             .frame(maxWidth: .infinity)
@@ -374,6 +495,7 @@ private struct TVSelectionButton: View {
 
 private struct StatusLine: View {
     @Environment(AppModel.self) private var model
+    var prominent = false
 
     var body: some View {
         let (text, color): (String, Color) = switch model.state {
@@ -386,7 +508,7 @@ private struct StatusLine: View {
         }
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.secondary)
+            Text(text).font(prominent ? .headline : .system(size: 12, weight: .medium)).foregroundStyle(Theme.secondary)
         }
     }
 }

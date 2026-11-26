@@ -108,6 +108,9 @@ private struct Pager: View {
     @Environment(AppModel.self) private var model
     @AppStorage("page") private var stored = 0
     @State private var page: Int? = 0
+    #if os(iOS)
+    @State private var showsPaneControls = false
+    #endif
     var usesSystemToolbar = false
 
     private var showsRemoteToolbar: Bool { usesSystemToolbar && (page ?? 0) == 0 }
@@ -130,7 +133,8 @@ private struct Pager: View {
         .onChange(of: page) { _, new in if let new { stored = new } }
         .onChange(of: stored) { _, new in if page != new { page = new } }
         #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
-        .modifier(DuoRemoteToolbar(isVisible: showsRemoteToolbar))
+        .onPreferenceChange(RemotePaneControlsKey.self) { showsPaneControls = $0 }
+        .modifier(DuoRemoteToolbar(isVisible: showsRemoteToolbar, showsVolume: !showsPaneControls))
         #endif
     }
 
@@ -158,6 +162,7 @@ private struct Pager: View {
 private struct DuoRemoteToolbar: ViewModifier {
     @Environment(AppModel.self) private var model
     let isVisible: Bool
+    let showsVolume: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -203,7 +208,7 @@ private struct DuoRemoteToolbar: ViewModifier {
             Button("Settings", systemImage: "gearshape.fill") { model.showingSettings = true }
         }
 
-        if model.current != nil && model.remoteControlMode.isGestureMode {
+        if showsVolume && model.current != nil && model.remoteControlMode.isGestureMode {
             ToolbarItemGroup(placement: .bottomBar) {
                 if model.supports(.volumeUp) {
                     Button("Volume up", systemImage: "plus") { model.press(.volumeUp) }
