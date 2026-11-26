@@ -1,4 +1,4 @@
-# Remote Lab
+# Just a TV Remote
 
 An independent beta fork of [Open TV Remote](https://github.com/iamnbutler/open-tv-remote) by Nathan Butler, with an eyes-free joystick, Dynamic Island shortcuts and LG webOS cursor controls. The iOS TestFlight app uses its own app identity and retains the original red power-button icon. No ads, analytics or tracking.
 
