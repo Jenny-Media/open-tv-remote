@@ -3,7 +3,7 @@ import Foundation
 struct RemoteWindowLayout {
     enum Arrangement: Equatable {
         case compact
-        case sideBySide
+        case book
         case tabletop
     }
 
@@ -11,7 +11,11 @@ struct RemoteWindowLayout {
     let companion: CGRect?
     let arrangement: Arrangement
 
-    init(size: CGSize, expandsRemote: Bool, division: CGRect?, occlusions: [CGRect] = []) {
+    var usesTrailingShortcuts: Bool {
+        arrangement != .book && controls.width >= 440 && controls.height < 440 && controls.width > controls.height
+    }
+
+    init(size: CGSize, division: CGRect?, occlusions: [CGRect] = []) {
         let window = CGRect(origin: .zero, size: size)
         let fold = division?.intersection(window)
         let horizontalFold = division.map { $0.width > $0.height } ?? false
@@ -30,7 +34,7 @@ struct RemoteWindowLayout {
             remote = CGRect(x: 0, y: 0, width: fold.minX - spacing / 2, height: size.height)
             extra = CGRect(x: fold.maxX + spacing / 2, y: 0,
                            width: size.width - fold.maxX - spacing / 2, height: size.height)
-            arrangement = .sideBySide
+            arrangement = .book
         } else if let fold, !fold.isNull {
             // A narrow Split View can include only one usable side of the fold.
             if horizontalFold {
@@ -48,12 +52,6 @@ struct RemoteWindowLayout {
             }
             extra = nil
             arrangement = .compact
-        } else if expandsRemote && size.width >= 620 && size.height >= 320 {
-            let remoteWidth = (size.width - spacing) * 0.52
-            remote = CGRect(x: 0, y: 0, width: remoteWidth, height: size.height)
-            extra = CGRect(x: remoteWidth + spacing, y: 0,
-                           width: size.width - remoteWidth - spacing, height: size.height)
-            arrangement = .sideBySide
         } else {
             remote = window
             extra = nil

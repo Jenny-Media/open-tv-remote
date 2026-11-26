@@ -8,26 +8,50 @@ struct PairingSheet: View {
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 22) {
-            Capsule().fill(.white.opacity(0.15)).frame(width: 40, height: 5).padding(.top, 10)
-            switch model.state {
-            case .pairing(.enterCode(let length, let error)):
-                enterCode(length: length, error: error)
-            case .pairing(.verifying):
-                waiting(title: "Checking the code…", message: " ")
-            case .pairing(.acceptOnTV):
-                waiting(title: "Check your TV",
-                        message: "Use your regular remote to choose Allow on the TV screen.")
-            default:
-                waiting(title: "Talking to your TV…", message: " ")
-            }
-            Spacer(minLength: 0)
-            Button("Cancel") { model.cancelPairing() }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.secondary)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 22) {
+                    Capsule().fill(.white.opacity(0.15)).frame(width: 40, height: 5).padding(.top, 10)
+                    switch model.state {
+                    case .pairing(.enterCode(let length, _)):
+                        enterCode(length: length)
+                    case .pairing(.verifying):
+                        waiting(title: "Checking the code…", message: " ")
+                    case .pairing(.acceptOnTV):
+                        waiting(title: "Check your TV",
+                                message: "Use your regular remote to choose Allow on the TV screen.")
+                    default:
+                        waiting(title: "Talking to your TV…", message: " ")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
                 .padding(.bottom, 12)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            #if os(iOS)
+            .scrollDismissesKeyboard(.never)
+            #endif
+
+            if let pairingError {
+                Text(pairingError)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.power)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+
+            Button {
+                model.cancelPairing()
+            } label: {
+                Text("Cancel")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.secondary)
+            .padding(.horizontal, 24)
         }
-        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity)
         .background(Theme.background.ignoresSafeArea())
         .interactiveDismissDisabled()
@@ -36,13 +60,19 @@ struct PairingSheet: View {
         #endif
     }
 
-    private func enterCode(length: Int, error: String?) -> some View {
+    private var pairingError: String? {
+        guard case .pairing(.enterCode(_, let error)) = model.state else { return nil }
+        return error
+    }
+
+    private func enterCode(length: Int) -> some View {
         VStack(spacing: 18) {
             Image(systemName: "tv.badge.wifi").font(.system(size: 34, weight: .semibold)).foregroundStyle(Theme.accent)
             Text("Enter the code on your TV").font(.system(size: 22, weight: .bold, design: .rounded))
             ZStack {
                 TextField("", text: $code)
                     .focused($fieldFocused)
+                    .accessibilityLabel("Pairing code")
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.characters)
@@ -69,9 +99,7 @@ struct PairingSheet: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { fieldFocused = true }
-            if let error {
-                Text(error).font(.footnote).foregroundStyle(Theme.power).multilineTextAlignment(.center)
-            } else {
+            if pairingError == nil {
                 Text("Codes use the numbers 0–9 and the letters A–F.").font(.footnote).foregroundStyle(Theme.secondary)
             }
         }
@@ -79,7 +107,7 @@ struct PairingSheet: View {
             code = ""
             fieldFocused = true
         }
-        .onChange(of: error) { _, _ in code = "" }
+        .onChange(of: pairingError) { _, _ in code = "" }
     }
 
     private func waiting(title: String, message: String) -> some View {
@@ -183,19 +211,22 @@ struct AppsSheet: View {
     }
 }
 
-struct TVAppGrid: View {
+private struct TVAppGrid: View {
     @Environment(AppModel.self) private var model
+    @State private var launchRejected = false
     var onLaunch: () -> Void
 
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 ForEach(model.allApps, id: \.app.id) { entry in
-                    AppTile(app: entry.app, style: entry.style) {
-                        model.launch(entry.app)
-                        onLaunch()
+                    AppTile(app: entry.app, style: entry.style, height: 72) {
+                        if model.launch(entry.app) {
+                            onLaunch()
+                        } else {
+                            launchRejected = true
+                        }
                     }
-                    .frame(height: 72)
                 }
             }
             .padding(20)
@@ -206,5 +237,17 @@ struct TVAppGrid: View {
                     .padding(.horizontal, 20)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if launchRejected {
+                Text("Pair with your TV to open apps.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.label)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Theme.well)
+            }
+        }
+        .onChange(of: model.currentID) { _, _ in launchRejected = false }
     }
 }

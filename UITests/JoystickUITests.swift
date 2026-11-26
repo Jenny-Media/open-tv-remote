@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class JoystickUITests: XCTestCase {
     private var app: XCUIApplication!
@@ -11,9 +12,10 @@ final class JoystickUITests: XCTestCase {
         app?.terminate()
     }
 
-    private func launch(openMode: Bool = true) {
+    private func launch(openMode: Bool = true, additionalArguments: [String] = []) {
         app = XCUIApplication()
         app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoInputLog", "YES", "-demoEyesFree", openMode ? "YES" : "NO"]
+        app.launchArguments += additionalArguments
         app.launch()
         if openMode { XCTAssertTrue(stick.waitForExistence(timeout: 10)) }
     }
@@ -32,6 +34,219 @@ final class JoystickUITests: XCTestCase {
         add(screenshot)
         selectMode("standard", title: "Directional pad")
         XCTAssertFalse(stick.exists)
+    }
+
+    func testTVAppsOpenOnDemandAndReturnToTheSameRemote() {
+        launch()
+        let apps = app.navigationBars["Apps"]
+        XCTAssertFalse(apps.exists)
+        XCTAssertFalse(app.staticTexts["TV Apps"].exists)
+
+        app.buttons["TV Apps"].tap()
+        XCTAssertTrue(apps.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Open YouTube"].exists)
+
+        apps.buttons["Done"].tap()
+        XCTAssertTrue(stick.waitForExistence(timeout: 5))
+        XCTAssertEqual(log.label, "0:None")
+
+        app.buttons["TV Apps"].tap()
+        let youtube = app.buttons["Open YouTube"]
+        XCTAssertTrue(youtube.waitForExistence(timeout: 5))
+        youtube.tap()
+        XCTAssertTrue(stick.waitForExistence(timeout: 5))
+        XCTAssertFalse(apps.exists)
+    }
+
+    func testTVAppsStaysOpenWhenPairingIsRequired() {
+        launch(additionalArguments: ["-demoUnpaired", "YES"])
+        app.buttons["TV Apps"].tap()
+        let youtube = app.buttons["Open YouTube"]
+        XCTAssertTrue(youtube.waitForExistence(timeout: 5))
+        youtube.tap()
+        XCTAssertTrue(app.staticTexts["Pair with your TV to open apps."].waitForExistence(timeout: 5))
+        XCTAssertTrue(youtube.exists)
+        XCTAssertTrue(app.navigationBars["Apps"].exists)
+    }
+
+    func testPowerHoldSendsFullShutdownWithoutAShortPress() {
+        launch()
+        let power = app.buttons["Power"]
+        XCTAssertTrue(power.isHittable)
+        power.tap()
+        XCTAssertEqual(log.label, "1:Power")
+        power.press(forDuration: 1.1)
+        XCTAssertEqual(log.label, "2:Turn off")
+    }
+
+    func testMovingDuringPowerHoldSendsNoCommand() {
+        launch()
+        let power = app.buttons["Power"]
+        XCTAssertTrue(power.isHittable)
+        let center = power.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let moved = center.withOffset(CGVector(dx: 15, dy: 0))
+        center.press(forDuration: 0.1, thenDragTo: moved, withVelocity: .default, thenHoldForDuration: 0.8)
+        XCTAssertEqual(log.label, "0:None")
+        power.tap()
+        XCTAssertEqual(log.label, "1:Power")
+    }
+
+    func testPairingKeepsTheCodeAndCancelReachableAfterRotation() {
+        let device = XCUIDevice.shared
+        let originalOrientation = device.orientation
+        defer {
+            if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
+        }
+        device.orientation = .portrait
+        launch(openMode: false, additionalArguments: ["-demoUnpaired", "YES"])
+        let startingFrame = app.frame
+        app.buttons["Pair"].tap()
+
+        let field = app.textFields["Pairing code"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        field.typeText("AB12C")
+
+        device.orientation = .landscapeRight
+        waitForLandscapeIfExpected(startingFrame)
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(cancel.isHittable)
+        XCTAssertEqual(field.value as? String, "AB12C")
+        field.typeText("0")
+
+        let error = app.staticTexts["Incorrect pairing code."]
+        let visibleError = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in error.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [visibleError], timeout: 5), .completed)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(cancel.isHittable)
+        cancel.tap()
+        XCTAssertTrue(app.buttons["Pair"].waitForExistence(timeout: 5))
+    }
+
+    func testDownloadedTVArtworkFitsItsGridCell() throws {
+        try assertArtworkFitsTiles(size: CGSize(width: 80, height: 125))
+        app.terminate()
+        try assertArtworkFitsTiles(size: CGSize(width: 175, height: 42))
+    }
+
+    private func assertArtworkFitsTiles(size: CGSize) throws {
+        let artwork = UIGraphicsImageRenderer(size: size).pngData { context in
+            let rect = CGRect(origin: .zero, size: size)
+            UIColor.blue.setFill()
+            context.fill(rect)
+            UIColor.systemYellow.setFill()
+            context.fill(rect.insetBy(dx: size.width * 0.25, dy: size.height * 0.16))
+        }
+        app = XCUIApplication()
+        app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoSheet", "apps",
+                               "-demoAppArtworkURL", "data:image/png;base64,\(artwork.base64EncodedString())"]
+        app.launch()
+
+        let first = app.buttons["Open Artwork 1"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let tiles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open Artwork ")).allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(tiles.count, 3)
+        XCTAssertEqual(first.frame.height, 72, accuracy: 1)
+        for (index, tile) in tiles.enumerated() {
+            for neighbor in tiles.dropFirst(index + 1) {
+                XCTAssertFalse(tile.frame.intersects(neighbor.frame))
+            }
+        }
+        let artworkLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.blueArtworkBounds(in: first.screenshot().image) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [artworkLoaded], timeout: 5), .completed)
+        for tile in tiles {
+            let artwork = try XCTUnwrap(blueArtworkBounds(in: tile.screenshot().image), "Missing artwork in \(tile.label)")
+            let frame = tile.frame
+            let points = artwork.applying(CGAffineTransform(scaleX: frame.width, y: frame.height))
+            let expectedScale = min((frame.width - 16) / size.width, (frame.height - 16) / size.height)
+            XCTAssertEqual(points.width, size.width * expectedScale, accuracy: 2)
+            XCTAssertEqual(points.height, size.height * expectedScale, accuracy: 2)
+            XCTAssertEqual(points.midX, frame.width / 2, accuracy: 2)
+            XCTAssertEqual(points.midY, frame.height / 2, accuracy: 2)
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "TV Apps with downloaded artwork \(Int(size.width))×\(Int(size.height))"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    /// Returns the fixture's visible bounds as fractions of the captured tile.
+    private func blueArtworkBounds(in capture: UIImage) -> CGRect? {
+        // Draw through UIImage so orientation metadata is applied before measuring pixels.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let oriented = UIGraphicsImageRenderer(size: capture.size, format: format)
+            .image { _ in capture.draw(at: .zero) }
+        guard let image = oriented.cgImage, let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let width = image.width
+        let height = image.height
+        let stride = width * 4
+        var pixels = [UInt8](repeating: 0, count: stride * height)
+        return pixels.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: stride,
+                                          space: colorSpace,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
+                                              CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            var minX = width
+            var minY = height
+            var maxX = -1
+            var maxY = -1
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * stride + x * 4
+                    guard bytes[offset] < 70, bytes[offset + 1] < 100, bytes[offset + 2] > 180 else { continue }
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+            guard maxX >= minX, maxY >= minY else { return nil }
+            return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+                .applying(CGAffineTransform(scaleX: 1 / CGFloat(width), y: 1 / CGFloat(height)))
+        }
+    }
+
+    func testRotatingKeepsTheRemoteUsable() {
+        let device = XCUIDevice.shared
+        let originalOrientation = device.orientation
+        defer {
+            if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
+        }
+        device.orientation = .portrait
+        launch()
+        let startingFrame = app.frame
+        device.orientation = .landscapeRight
+        waitForLandscapeIfExpected(startingFrame)
+        XCTAssertTrue(app.buttons["TV Apps"].isHittable)
+        let home = app.buttons["Home"]
+        let stick = self.stick
+        let layoutReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            home.isHittable && stick.isHittable && home.frame.midY < stick.frame.midY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [layoutReady], timeout: 5), .completed)
+        stick.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertEqual(log.label, "1:OK")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Eyes-free remote after rotation"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func waitForLandscapeIfExpected(_ startingFrame: CGRect) {
+        // The Duo's inner display can keep a tall app window after a physical rotation.
+        guard UIDevice.current.userInterfaceIdiom == .pad ||
+              (startingFrame.width < 500 && startingFrame.width < startingFrame.height) else { return }
+        let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.app.frame.width > self.app.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 5), .completed)
     }
 
     private func selectMode(_ id: String, title: String) {
@@ -53,7 +268,8 @@ final class JoystickUITests: XCTestCase {
         launch()
         stick.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertEqual(log.label, "1:OK")
-        app.buttons["eyesFreeBack"].tap()
+        let largeBack = app.buttons["eyesFreeBack"]
+        (largeBack.exists ? largeBack : app.buttons["Back"]).tap()
         XCTAssertEqual(log.label, "2:Back")
         app.buttons["Home"].tap()
         XCTAssertEqual(log.label, "3:Home")

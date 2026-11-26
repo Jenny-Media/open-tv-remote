@@ -106,20 +106,46 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     @GestureState private var pressed = false
     @State private var repeatTask: Task<Void, Never>?
     @State private var held = false
+    #if os(iOS)
+    @State private var holdHighlighted = false
+    #endif
 
     var body: some View {
-        label()
-            .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(KeySurface(shape: shape, pressed: pressed, tint: tint))
-            .contentShape(shape)
-            .scaleEffect(pressed ? 0.955 : 1)
-            .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
+        interaction
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { fire() }
+            .accessibilityActions {
+                if let holdAction { Button(holdName, action: holdAction) }
+            }
+    }
+
+    @ViewBuilder private var interaction: some View {
+        #if os(iOS)
+        if let holdAction {
+            face(pressed: holdHighlighted)
+                .overlay {
+                    HoldKeyCapTarget(tap: fire, hold: {
+                        Haptics.tick()
+                        holdAction()
+                    }, highlight: { holdHighlighted = $0 })
+                    .accessibilityHidden(true)
+                }
+        } else {
+            dragInteraction
+        }
+        #else
+        dragInteraction
+        #endif
+    }
+
+    private var dragInteraction: some View {
+        face(pressed: pressed)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($pressed) { _, state, _ in state = true }
-                    // onEnded doesn't run when the system cancels the touch, so a cancelled
-                    // hold never turns into a tap.
+                    // A cancelled drag never turns into a tap.
                     .onEnded { _ in
                         if holdAction != nil && !held { fire() }
                     }
@@ -142,13 +168,16 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                 if repeats { startRepeating() }
             }
             .onDisappear { repeatTask?.cancel() }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { fire() }
-            .accessibilityActions {
-                if let holdAction { Button(holdName, action: holdAction) }
-            }
+    }
+
+    private func face(pressed: Bool) -> some View {
+        label()
+            .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(KeySurface(shape: shape, pressed: pressed, tint: tint))
+            .contentShape(shape)
+            .scaleEffect(pressed ? 0.955 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
     }
 
     private func fire() {
@@ -168,6 +197,88 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
         }
     }
 }
+
+#if os(iOS)
+private struct HoldKeyCapTarget: UIViewRepresentable {
+    let tap: () -> Void
+    let hold: () -> Void
+    let highlight: (Bool) -> Void
+
+    func makeUIView(context: Context) -> PressButton {
+        PressButton()
+    }
+
+    func updateUIView(_ button: PressButton, context: Context) {
+        button.tap = tap
+        button.hold = hold
+        button.highlight = highlight
+    }
+
+    final class PressButton: UIButton {
+        private static let holdDuration: TimeInterval = 0.7
+        private static let movementLimit: CGFloat = 10
+
+        var tap: (() -> Void)?
+        var hold: (() -> Void)?
+        var highlight: ((Bool) -> Void)?
+        private var tapStart: (location: CGPoint, timestamp: TimeInterval)?
+
+        override var isHighlighted: Bool {
+            didSet { if oldValue != isHighlighted { highlight?(isHighlighted) } }
+        }
+
+        init() {
+            super.init(frame: .zero)
+            isAccessibilityElement = false
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+            recognizer.minimumPressDuration = Self.holdDuration
+            recognizer.allowableMovement = Self.movementLimit
+            // Recognition cancels the button touch, so release never also sends Power.
+            recognizer.cancelsTouchesInView = true
+            addGestureRecognizer(recognizer)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+
+        override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            tapStart = (touch.location(in: self), touch.timestamp)
+            return super.beginTracking(touch, with: event)
+        }
+
+        override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            // Once movement cancels a tap, returning to the button doesn't restore it.
+            if !isValidTap(touch) { tapStart = nil }
+            return super.continueTracking(touch, with: event)
+        }
+
+        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+            let shouldTap = touch.map(isValidTap) ?? false
+            tapStart = nil
+            super.endTracking(touch, with: event)
+            if shouldTap { tap?() }
+        }
+
+        override func cancelTracking(with event: UIEvent?) {
+            tapStart = nil
+            super.cancelTracking(with: event)
+        }
+
+        private func isValidTap(_ touch: UITouch) -> Bool {
+            guard let tapStart, touch.timestamp - tapStart.timestamp < Self.holdDuration else { return false }
+            let location = touch.location(in: self)
+            return bounds.contains(location) &&
+                hypot(location.x - tapStart.location.x, location.y - tapStart.location.y) <= Self.movementLimit
+        }
+
+        @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
+            if recognizer.state == .began, bounds.contains(recognizer.location(in: self)) {
+                hold?()
+            }
+        }
+    }
+}
+#endif
 
 extension KeyCap where S == RoundedRectangle {
     init(repeats: Bool = false, tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,

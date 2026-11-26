@@ -6,35 +6,46 @@ import Testing
 struct RemoteWindowLayoutTests {
     @Test func compactWindowKeepsAllSpaceForTheRemote() {
         let size = CGSize(width: 374, height: 820)
-        let layout = RemoteWindowLayout(size: size, expandsRemote: true, division: nil)
+        let layout = RemoteWindowLayout(size: size, division: nil)
 
         #expect(layout.arrangement == .compact)
         #expect(layout.controls == CGRect(origin: .zero, size: size))
         #expect(layout.companion == nil)
+        #expect(!layout.usesTrailingShortcuts)
     }
 
-    @Test func openPhoneShowsCompanionWithoutChangingTheTabletLayout() throws {
+    @Test func fullyOpenWindowKeepsTheRemoteAsTheOnlyPane() {
         let size = CGSize(width: 720, height: 760)
-        let phone = RemoteWindowLayout(size: size, expandsRemote: true, division: nil)
-        let tablet = RemoteWindowLayout(size: size, expandsRemote: false, division: nil)
+        let layout = RemoteWindowLayout(size: size, division: nil)
 
-        #expect(phone.arrangement == .sideBySide)
-        #expect(phone.controls.maxX < (try #require(phone.companion)).minX)
-        #expect(tablet.arrangement == .compact)
+        #expect(layout.arrangement == .compact)
+        #expect(layout.controls == CGRect(origin: .zero, size: size))
+        #expect(layout.companion == nil)
+        #expect(!layout.usesTrailingShortcuts)
     }
 
-    @Test func bookPanesStraddleTheActualOffCenterFold() throws {
-        let fold = CGRect(x: 315, y: 0, width: 42, height: 760)
-        let layout = RemoteWindowLayout(size: CGSize(width: 720, height: 760), expandsRemote: true, division: fold)
+    @Test func shortLandscapeWindowMakesRoomForTrailingShortcuts() {
+        let size = CGSize(width: 680, height: 360)
+        let layout = RemoteWindowLayout(size: size, division: nil)
 
-        #expect(layout.arrangement == .sideBySide)
+        #expect(layout.controls == CGRect(origin: .zero, size: size))
+        #expect(layout.companion == nil)
+        #expect(layout.usesTrailingShortcuts)
+    }
+
+    @Test func bookKeepsRemoteAndShortcutsOnEitherSideOfTheFold() throws {
+        let fold = CGRect(x: 315, y: 0, width: 42, height: 760)
+        let layout = RemoteWindowLayout(size: CGSize(width: 720, height: 760), division: fold)
+
+        #expect(layout.arrangement == .book)
         #expect(layout.controls.maxX < fold.minX)
         #expect((try #require(layout.companion)).minX > fold.maxX)
+        #expect(!layout.usesTrailingShortcuts)
     }
 
     @Test func tabletopKeepsTheControlsOnTheNearHalf() throws {
         let fold = CGRect(x: 0, y: 325, width: 740, height: 34)
-        let layout = RemoteWindowLayout(size: CGSize(width: 740, height: 680), expandsRemote: true, division: fold)
+        let layout = RemoteWindowLayout(size: CGSize(width: 740, height: 680), division: fold)
 
         #expect(layout.arrangement == .tabletop)
         #expect(layout.controls.minY > fold.maxY)
@@ -43,7 +54,7 @@ struct RemoteWindowLayoutTests {
 
     @Test func compactSplitViewDoesNotCoverTheFold() {
         let fold = CGRect(x: 290, y: 0, width: 30, height: 650)
-        let layout = RemoteWindowLayout(size: CGSize(width: 335, height: 650), expandsRemote: true, division: fold)
+        let layout = RemoteWindowLayout(size: CGSize(width: 335, height: 650), division: fold)
 
         #expect(layout.arrangement == .compact)
         #expect(layout.companion == nil)
@@ -53,8 +64,9 @@ struct RemoteWindowLayoutTests {
     @Test func cameraExclusionResizesOnlyItsPane() throws {
         let size = CGSize(width: 720, height: 700)
         let camera = CGRect(x: 635, y: 0, width: 65, height: 44)
-        let clear = RemoteWindowLayout(size: size, expandsRemote: true, division: nil)
-        let withCamera = RemoteWindowLayout(size: size, expandsRemote: true, division: nil, occlusions: [camera])
+        let fold = CGRect(x: 340, y: 0, width: 40, height: size.height)
+        let clear = RemoteWindowLayout(size: size, division: fold)
+        let withCamera = RemoteWindowLayout(size: size, division: fold, occlusions: [camera])
 
         #expect(withCamera.controls == clear.controls)
         #expect(!(try #require(withCamera.companion)).intersects(camera))
