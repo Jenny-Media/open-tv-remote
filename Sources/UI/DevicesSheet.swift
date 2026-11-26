@@ -35,7 +35,7 @@ struct DevicesSheet: View {
                             Label("Local network access is off", systemImage: "wifi.exclamationmark")
                                 .font(.headline)
                                 .foregroundStyle(.orange)
-                            Text("TV Remote needs it to find and control TVs on your Wi-Fi. Turn on Local Network for TV Remote in Settings → Privacy & Security → Local Network.")
+                            Text("Just a TV Remote needs it to find and control TVs on your Wi-Fi. Turn on Local Network for Just a TV Remote in Settings → Privacy & Security → Local Network.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             #if os(iOS)
