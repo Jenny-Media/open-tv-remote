@@ -156,7 +156,6 @@ struct KeyboardPadView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onDisappear { model.typed = "" }
     }
 
     /// A small D-pad for moving through results, with clear, delete and Return beside it.

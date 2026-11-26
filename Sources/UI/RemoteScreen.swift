@@ -13,6 +13,7 @@ struct RemoteScreen: View {
         }
     }
     @FocusState private var focused: Bool
+    @State private var heldHardwareKeys: Set<Character> = []
 
     var body: some View {
         Group {
@@ -31,8 +32,14 @@ struct RemoteScreen: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onKeyPress(action: handleKey)
+        .onKeyPress(phases: [.down, .repeat, .up], action: handleHardwareKey)
         .onAppear { focused = true }
+        .onDisappear { model.typed = "" }
+        .onChange(of: mode) { oldMode, _ in
+            if oldMode == .keyboard { model.typed = "" }
+        }
+        .onChange(of: focused) { _, _ in heldHardwareKeys.removeAll() }
+        .onChange(of: model.remoteCommandsAvailable) { _, _ in heldHardwareKeys.removeAll() }
     }
 
     #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
@@ -64,6 +71,7 @@ struct RemoteScreen: View {
                         .position(x: companion.midX, y: companion.midY)
                 }
             }
+            .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
         }
     }
 
@@ -188,7 +196,19 @@ struct RemoteScreen: View {
         }
     }
 
-    /// Hardware keyboard control (Mac, or iPad with a keyboard).
+    private func handleHardwareKey(_ press: KeyPress) -> KeyPress.Result {
+        let character = press.key.character
+        if press.phase == .up {
+            heldHardwareKeys.remove(character)
+            return .ignored
+        }
+        if press.phase == .repeat, !heldHardwareKeys.contains(character) { return .ignored }
+        let result = handleKey(press)
+        if press.phase == .down, result == .handled { heldHardwareKeys.insert(character) }
+        return result
+    }
+
+    /// Hardware keyboard control.
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
         guard model.remoteCommandsAvailable else { return .ignored }
         if mode == .keyboard, let result = typeKey(press) { return result }

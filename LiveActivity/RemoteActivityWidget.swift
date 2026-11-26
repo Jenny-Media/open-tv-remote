@@ -38,8 +38,13 @@ struct RemoteActivityWidget: Widget {
                 if context.isStale {
                     Image(systemName: "clock.badge.exclamationmark").accessibilityLabel("Remote session expired")
                 } else {
-                    Text(context.state.brandName ?? String(context.state.tvName.split(separator: " ").first ?? "TV"))
-                        .font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                    ViewThatFits(in: .horizontal) {
+                        Text(context.state.brandName ?? String(context.state.tvName.split(separator: " ").first ?? "TV"))
+                            .font(.caption2.weight(.semibold)).lineLimit(1)
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 6)).foregroundStyle(.mint)
+                            .accessibilityLabel("Remote pinned")
+                    }
                 }
             } minimal: {
                 Image(systemName: context.isStale ? "clock.badge.exclamationmark" : "av.remote.fill")
