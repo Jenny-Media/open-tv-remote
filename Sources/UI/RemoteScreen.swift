@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
-import UIKit
-#endif
 
 struct RemoteScreen: View {
     @Environment(AppModel.self) private var model
@@ -17,13 +14,8 @@ struct RemoteScreen: View {
 
     var body: some View {
         Group {
-            // Xcode 27.0 already has Swift 6.4. The reserved regions API arrived in iOS 27.1.
-            #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
-            if #available(iOS 27.1, *) {
-                adaptiveRemote
-            } else {
-                remote(showHeader: true, tabletop: false)
-            }
+            #if os(iOS)
+            adaptiveRemote
             #else
             remote(showHeader: true, tabletop: false)
             #endif
@@ -42,81 +34,105 @@ struct RemoteScreen: View {
         .onChange(of: model.remoteCommandsAvailable) { _, _ in heldHardwareKeys.removeAll() }
     }
 
-    #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    @available(iOS 27.1, *)
+    #if os(iOS)
     private var adaptiveRemote: some View {
         GeometryReader { geometry in
-            let layout = RemoteWindowLayout(
-                size: geometry.size,
-                expandsRemote: horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .phone,
-                division: geometry.reservedRegions(kind: .division).first?.frame,
-                occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame)
-            )
+            let layout = windowLayout(in: geometry)
             let tabletop = layout.arrangement == .tabletop
 
             ZStack {
-                remote(showHeader: !tabletop, tabletop: tabletop)
+                HStack(alignment: .top, spacing: 0) {
+                    remote(showHeader: !tabletop, tabletop: tabletop,
+                           compactHeight: tabletop || layout.usesTrailingShortcuts,
+                           showsShortcuts: layout.arrangement != .book && !layout.usesTrailingShortcuts)
+                    if layout.usesTrailingShortcuts {
+                        shortcutColumn()
+                    }
+                }
                     // Recreate transient input when its hit targets move. The selected TV,
                     // navigation page, and mode live above this view.
-                    .id(layout.controls)
+                    .id(layout.arrangement)
+                    .id([layout.controls.minX, layout.controls.minY, layout.controls.width, layout.controls.height])
                     .frame(width: layout.controls.width, height: layout.controls.height)
                     .position(x: layout.controls.midX, y: layout.controls.midY)
 
                 if let companion = layout.companion {
-                    companionPane(tabletop: tabletop)
-                        .accessibilityIdentifier(tabletop ? "remoteTVStatusPane" : "remoteTVAppsPane")
-                        .frame(width: companion.width, height: companion.height)
-                        .position(x: companion.midX, y: companion.midY)
+                    Group {
+                        if tabletop {
+                            VStack(spacing: 12) {
+                                TVSelectionButton(prominent: true)
+                                StatusBanner()
+                            }
+                            .padding(20)
+                            .accessibilityIdentifier("remoteTVStatusPane")
+                        } else {
+                            shortcutColumn()
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    .frame(width: companion.width, height: companion.height)
+                    .position(x: companion.midX, y: companion.midY)
                 }
             }
             .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
+            .onChange(of: layout.arrangement) { _, _ in heldHardwareKeys.removeAll() }
         }
     }
 
-    private func companionPane(tabletop: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if tabletop {
-                Spacer(minLength: 0)
-                TVSelectionButton(prominent: true)
-                StatusBanner()
-                Spacer(minLength: 0)
-            } else if model.current != nil {
-                Text("TV Apps")
-                    .font(.headline)
-                    .foregroundStyle(Theme.label)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.horizontal, 20)
-                TVAppGrid(onLaunch: {})
-                    .disabled(!model.remoteCommandsAvailable)
-            }
+    private func windowLayout(in geometry: GeometryProxy) -> RemoteWindowLayout {
+        // Xcode 27.0 has Swift 6.4, but reserved regions arrived in iOS 27.1.
+        #if compiler(>=6.4) && !IPHONE_SDK_27_0
+        if #available(iOS 27.1, *) {
+            return RemoteWindowLayout(size: geometry.size,
+                                      division: geometry.reservedRegions(kind: .division).first?.frame,
+                                      occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame))
         }
-        .padding(.horizontal, tabletop ? 20 : 0)
-        .padding(.top, tabletop ? 8 : 20)
-        .frame(maxHeight: .infinity, alignment: .top)
+        #endif
+        return RemoteWindowLayout(size: geometry.size, division: nil)
+    }
+
+    private func shortcutColumn() -> some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                TopBar(showsTVSelection: false, vertical: true)
+                if model.current != nil && model.remoteControlMode.isGestureMode &&
+                    (model.supports(.volumeUp) || model.supports(.volumeDown)) {
+                    volume.frame(height: 124)
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.hidden)
+        .frame(width: 50)
+        .padding(.trailing, 12)
     }
     #endif
 
-    private func remote(showHeader: Bool, tabletop: Bool) -> some View {
-        VStack(spacing: tabletop ? 6 : 12) {
-            TopBar(showsTVSelection: showHeader)
+    private func remote(showHeader: Bool, tabletop: Bool, compactHeight: Bool = false,
+                        showsShortcuts: Bool = true) -> some View {
+        VStack(spacing: compactHeight ? 6 : 12) {
+            if showsShortcuts {
+                TopBar(showsTVSelection: showHeader)
+            } else if showHeader {
+                TVSelectionButton().frame(minHeight: 40)
+            }
             if showHeader { StatusBanner() }
             switch model.remoteControlMode {
-            case .standard, .keyboard, .keypad: standardMode(tabletop: tabletop)
-            case .eyesFree: JoystickScreen(compactHeight: tabletop)
-            case .cursor: CursorScreen(compactHeight: tabletop)
+            case .standard, .keyboard, .keypad: standardMode(compactHeight: compactHeight)
+            case .eyesFree: JoystickScreen(compactHeight: compactHeight)
+            case .cursor: CursorScreen(compactHeight: compactHeight)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .frame(maxWidth: tabletop ? .infinity : 600)
+        .frame(maxWidth: tabletop || compactHeight ? .infinity : 600)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func standardMode(tabletop: Bool) -> some View {
+    private func standardMode(compactHeight: Bool) -> some View {
         RemoteModeLayout { navRow } controls: {
-            if tabletop && mode != .keyboard {
+            if compactHeight && mode != .keyboard {
                 ScrollView {
                     HStack(alignment: .top, spacing: 16) {
                         pad.frame(height: 192)
@@ -182,7 +198,7 @@ struct RemoteScreen: View {
                     RemoteKeyButton(key: .search, symbol: "magnifyingglass")
                 }
                 Rocker(label: "CH", up: .channelUp, down: .channelDown, upSymbol: "chevron.up", downSymbol: "chevron.down")
-                Rocker(label: "VOL", up: .volumeUp, down: .volumeDown, upSymbol: "plus", downSymbol: "minus")
+                volume
             }
             .frame(height: 124)
 
@@ -194,6 +210,10 @@ struct RemoteScreen: View {
             }
             .frame(height: 56)
         }
+    }
+
+    private var volume: some View {
+        Rocker(label: "VOL", up: .volumeUp, down: .volumeDown, upSymbol: "plus", downSymbol: "minus")
     }
 
     private func handleHardwareKey(_ press: KeyPress) -> KeyPress.Result {
@@ -265,9 +285,11 @@ struct RemoteScreen: View {
 private struct TopBar: View {
     @Environment(AppModel.self) private var model
     var showsTVSelection = true
+    var vertical = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        layout {
             // Where the TV has a separate full power-off (Samsung), holding the key sends it.
             KeyCap(shape: Circle(), tint: Theme.power, accessibilityLabel: "Power",
                    holdAction: model.supports(.powerOff) ? { model.press(.powerOff) } : nil,
@@ -280,7 +302,7 @@ private struct TopBar: View {
 
             if showsTVSelection {
                 TVSelectionButton()
-            } else {
+            } else if !vertical {
                 Spacer(minLength: 0)
             }
 
@@ -291,6 +313,16 @@ private struct TopBar: View {
             }
             .frame(width: 48, height: 48)
 
+            #if os(iOS)
+            if model.current != nil {
+                KeyCap(shape: Circle(), accessibilityLabel: "TV Apps") {
+                    model.showingApps = true
+                } label: {
+                    Image(systemName: "square.grid.2x2.fill").font(.system(size: 16, weight: .semibold))
+                }
+                .frame(width: 48, height: 48)
+            }
+            #endif
             SettingsButton().frame(width: 48, height: 48)
         }
     }
@@ -313,7 +345,7 @@ private struct TVSelectionButton: View {
                 HStack(spacing: 5) {
                     Text(model.current?.name ?? "Choose a TV")
                         .font(prominent ? .title2.weight(.semibold) : .system(size: 17, weight: .semibold, design: .rounded))
-                        .lineLimit(prominent ? 2 : 1)
+                        .lineLimit(2)
                         .multilineTextAlignment(.center)
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Theme.secondary)
@@ -449,6 +481,7 @@ private struct Rocker: View {
 struct AppTile: View {
     let app: TVApp
     let style: CatalogApp?
+    let height: CGFloat
     let action: () -> Void
 
     var body: some View {
@@ -478,29 +511,38 @@ struct AppTile: View {
                             .padding(.horizontal, 24)
                     }
                 } else if let icon = app.iconURL {
-                    shape.fill(Theme.keyTop)
-                    AsyncImage(url: icon) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Text(app.name).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Theme.label)
+                    shape.fill(Theme.keyTop).overlay {
+                        AsyncImage(url: icon) { image in
+                            image.resizable().scaledToFit().padding(8)
+                        } placeholder: {
+                            appName
+                        }
+                        .accessibilityHidden(true)
                     }
-                    .clipShape(shape)
                 } else {
                     KeySurface(shape: shape)
-                    Text(app.name)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.label)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 6)
+                    appName
                 }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipShape(shape)
+            .contentShape(shape)
             .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
             .compositingGroup()
             .shadow(color: .black.opacity(0.45), radius: 6, y: 3)
         }
         .buttonStyle(PressScaleStyle())
         .accessibilityLabel("Open \(app.name)")
+    }
+
+    private var appName: some View {
+        Text(app.name)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(Theme.label)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
     }
 }
 

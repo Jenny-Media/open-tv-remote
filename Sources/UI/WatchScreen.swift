@@ -44,8 +44,7 @@ struct WatchScreen: View {
                 SectionTitle("Apps")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
                     ForEach(model.watchApps, id: \.app.id) { entry in
-                        AppTile(app: entry.app, style: entry.style) { model.launch(entry.app) }
-                            .frame(height: 56)
+                        AppTile(app: entry.app, style: entry.style, height: 56) { model.launch(entry.app) }
                     }
                     Button { model.showingApps = true } label: {
                         VStack(spacing: 2) {

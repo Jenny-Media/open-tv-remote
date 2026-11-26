@@ -24,7 +24,7 @@ final class DemoDriver: TVDriver {
     func send(_ key: RemoteKey) {}
     func sendText(_ text: String) {}
     func launch(_ app: TVApp) {}
-    func installedApps() async -> [TVApp]? { nil }
+    func installedApps() async -> [TVApp]? { DemoMode.artworkApps }
 }
 
 enum DemoMode {
@@ -36,5 +36,13 @@ enum DemoMode {
     ]
 
     static var sheet: String? { UserDefaults.standard.string(forKey: "demoSheet") }
+
+    static var artworkApps: [TVApp]? {
+        guard let value = UserDefaults.standard.string(forKey: "demoAppArtworkURL"),
+              let iconURL = URL(string: value), iconURL.scheme == "data" else { return nil }
+        return (1...6).map { index in
+            TVApp(name: "Artwork \(index)", launchID: "artwork-\(index)", iconURL: iconURL)
+        }
+    }
 }
 #endif

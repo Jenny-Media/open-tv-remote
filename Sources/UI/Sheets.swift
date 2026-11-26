@@ -183,7 +183,7 @@ struct AppsSheet: View {
     }
 }
 
-struct TVAppGrid: View {
+private struct TVAppGrid: View {
     @Environment(AppModel.self) private var model
     var onLaunch: () -> Void
 
@@ -191,11 +191,10 @@ struct TVAppGrid: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 ForEach(model.allApps, id: \.app.id) { entry in
-                    AppTile(app: entry.app, style: entry.style) {
+                    AppTile(app: entry.app, style: entry.style, height: 72) {
                         model.launch(entry.app)
                         onLaunch()
                     }
-                    .frame(height: 72)
                 }
             }
             .padding(20)
