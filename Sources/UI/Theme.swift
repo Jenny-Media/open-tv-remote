@@ -215,9 +215,13 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
     }
 
     final class PressButton: UIButton {
+        private static let holdDuration: TimeInterval = 0.7
+        private static let movementLimit: CGFloat = 10
+
         var tap: (() -> Void)?
         var hold: (() -> Void)?
         var highlight: ((Bool) -> Void)?
+        private var tapStart: (location: CGPoint, timestamp: TimeInterval)?
 
         override var isHighlighted: Bool {
             didSet { if oldValue != isHighlighted { highlight?(isHighlighted) } }
@@ -226,9 +230,9 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
         init() {
             super.init(frame: .zero)
             isAccessibilityElement = false
-            addTarget(self, action: #selector(tapped), for: .touchUpInside)
             let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
-            recognizer.minimumPressDuration = 0.7
+            recognizer.minimumPressDuration = Self.holdDuration
+            recognizer.allowableMovement = Self.movementLimit
             // Recognition cancels the button touch, so release never also sends Power.
             recognizer.cancelsTouchesInView = true
             addGestureRecognizer(recognizer)
@@ -237,10 +241,40 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
-        @objc private func tapped() { tap?() }
+        override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            tapStart = (touch.location(in: self), touch.timestamp)
+            return super.beginTracking(touch, with: event)
+        }
+
+        override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            // Once movement cancels a tap, returning to the button doesn't restore it.
+            if !isValidTap(touch) { tapStart = nil }
+            return super.continueTracking(touch, with: event)
+        }
+
+        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+            let shouldTap = touch.map(isValidTap) ?? false
+            tapStart = nil
+            super.endTracking(touch, with: event)
+            if shouldTap { tap?() }
+        }
+
+        override func cancelTracking(with event: UIEvent?) {
+            tapStart = nil
+            super.cancelTracking(with: event)
+        }
+
+        private func isValidTap(_ touch: UITouch) -> Bool {
+            guard let tapStart, touch.timestamp - tapStart.timestamp < Self.holdDuration else { return false }
+            let location = touch.location(in: self)
+            return bounds.contains(location) &&
+                hypot(location.x - tapStart.location.x, location.y - tapStart.location.y) <= Self.movementLimit
+        }
 
         @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
-            if recognizer.state == .began { hold?() }
+            if recognizer.state == .began, bounds.contains(recognizer.location(in: self)) {
+                hold?()
+            }
         }
     }
 }

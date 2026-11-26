@@ -79,6 +79,18 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(log.label, "2:Turn off")
     }
 
+    func testMovingDuringPowerHoldSendsNoCommand() {
+        launch()
+        let power = app.buttons["Power"]
+        XCTAssertTrue(power.isHittable)
+        let center = power.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let moved = center.withOffset(CGVector(dx: 15, dy: 0))
+        center.press(forDuration: 0.1, thenDragTo: moved, withVelocity: .default, thenHoldForDuration: 0.8)
+        XCTAssertEqual(log.label, "0:None")
+        power.tap()
+        XCTAssertEqual(log.label, "1:Power")
+    }
+
     func testPairingKeepsTheCodeAndCancelReachableAfterRotation() {
         let device = XCUIDevice.shared
         let originalOrientation = device.orientation
@@ -112,12 +124,19 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Pair"].waitForExistence(timeout: 5))
     }
 
-    func testDownloadedTVArtworkFitsItsGridCell() {
-        let artwork = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 125)).pngData { context in
-            UIColor.systemBlue.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 80, height: 125))
+    func testDownloadedTVArtworkFitsItsGridCell() throws {
+        try assertArtworkFitsTiles(size: CGSize(width: 80, height: 125))
+        app.terminate()
+        try assertArtworkFitsTiles(size: CGSize(width: 175, height: 42))
+    }
+
+    private func assertArtworkFitsTiles(size: CGSize) throws {
+        let artwork = UIGraphicsImageRenderer(size: size).pngData { context in
+            let rect = CGRect(origin: .zero, size: size)
+            UIColor.blue.setFill()
+            context.fill(rect)
             UIColor.systemYellow.setFill()
-            context.fill(CGRect(x: 20, y: 20, width: 40, height: 85))
+            context.fill(rect.insetBy(dx: size.width * 0.25, dy: size.height * 0.16))
         }
         app = XCUIApplication()
         app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoSheet", "apps",
@@ -134,10 +153,63 @@ final class JoystickUITests: XCTestCase {
                 XCTAssertFalse(tile.frame.intersects(neighbor.frame))
             }
         }
+        let artworkLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.blueArtworkBounds(in: first.screenshot().image) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [artworkLoaded], timeout: 5), .completed)
+        for tile in tiles {
+            let artwork = try XCTUnwrap(blueArtworkBounds(in: tile.screenshot().image), "Missing artwork in \(tile.label)")
+            let frame = tile.frame
+            let points = artwork.applying(CGAffineTransform(scaleX: frame.width, y: frame.height))
+            let expectedScale = min((frame.width - 16) / size.width, (frame.height - 16) / size.height)
+            XCTAssertEqual(points.width, size.width * expectedScale, accuracy: 2)
+            XCTAssertEqual(points.height, size.height * expectedScale, accuracy: 2)
+            XCTAssertEqual(points.midX, frame.width / 2, accuracy: 2)
+            XCTAssertEqual(points.midY, frame.height / 2, accuracy: 2)
+        }
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "TV Apps with downloaded artwork"
+        screenshot.name = "TV Apps with downloaded artwork \(Int(size.width))×\(Int(size.height))"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    /// Returns the fixture's visible bounds as fractions of the captured tile.
+    private func blueArtworkBounds(in capture: UIImage) -> CGRect? {
+        // Draw through UIImage so orientation metadata is applied before measuring pixels.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let oriented = UIGraphicsImageRenderer(size: capture.size, format: format)
+            .image { _ in capture.draw(at: .zero) }
+        guard let image = oriented.cgImage, let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let width = image.width
+        let height = image.height
+        let stride = width * 4
+        var pixels = [UInt8](repeating: 0, count: stride * height)
+        return pixels.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: stride,
+                                          space: colorSpace,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
+                                              CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            var minX = width
+            var minY = height
+            var maxX = -1
+            var maxY = -1
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * stride + x * 4
+                    guard bytes[offset] < 70, bytes[offset + 1] < 100, bytes[offset + 2] > 180 else { continue }
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+            guard maxX >= minX, maxY >= minY else { return nil }
+            return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+                .applying(CGAffineTransform(scaleX: 1 / CGFloat(width), y: 1 / CGFloat(height)))
+        }
     }
 
     func testRotatingKeepsTheRemoteUsable() {
