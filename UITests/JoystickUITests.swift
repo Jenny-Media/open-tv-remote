@@ -96,7 +96,7 @@ final class JoystickUITests: XCTestCase {
         field.typeText("AB12C")
 
         device.orientation = .landscapeRight
-        waitForLandscapeIfNarrow(startingFrame)
+        waitForLandscapeIfExpected(startingFrame)
         let cancel = app.buttons["Cancel"]
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(cancel.isHittable)
@@ -150,10 +150,14 @@ final class JoystickUITests: XCTestCase {
         launch()
         let startingFrame = app.frame
         device.orientation = .landscapeRight
-        waitForLandscapeIfNarrow(startingFrame)
+        waitForLandscapeIfExpected(startingFrame)
         XCTAssertTrue(app.buttons["TV Apps"].isHittable)
-        XCTAssertTrue(app.buttons["Home"].isHittable)
-        XCTAssertLessThan(app.buttons["Home"].frame.midY, stick.frame.midY)
+        let home = app.buttons["Home"]
+        let stick = self.stick
+        let layoutReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            home.isHittable && stick.isHittable && home.frame.midY < stick.frame.midY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [layoutReady], timeout: 5), .completed)
         stick.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertEqual(log.label, "1:OK")
 
@@ -163,8 +167,10 @@ final class JoystickUITests: XCTestCase {
         add(screenshot)
     }
 
-    private func waitForLandscapeIfNarrow(_ startingFrame: CGRect) {
-        guard startingFrame.width < 500 && startingFrame.width < startingFrame.height else { return }
+    private func waitForLandscapeIfExpected(_ startingFrame: CGRect) {
+        // The Duo's inner display can keep a tall app window after a physical rotation.
+        guard UIDevice.current.userInterfaceIdiom == .pad ||
+              (startingFrame.width < 500 && startingFrame.width < startingFrame.height) else { return }
         let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             self.app.frame.width > self.app.frame.height
         }, object: nil)
