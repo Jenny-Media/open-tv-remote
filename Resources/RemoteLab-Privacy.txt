@@ -13,4 +13,4 @@ Just a TV Remote is an independent fork of Open TV Remote. Jenny Media LLC does 
 
 For privacy questions, email [remote@jenny.media](mailto:remote@jenny.media).
 
-Source and support: [xcv58/open-tv-remote](https://github.com/xcv58/open-tv-remote). Original project: [iamnbutler/open-tv-remote](https://github.com/iamnbutler/open-tv-remote). Open-source and asset notices are preserved in the app and repository.
+Source and support: [Jenny-Media/open-tv-remote](https://github.com/Jenny-Media/open-tv-remote). Original project: [iamnbutler/open-tv-remote](https://github.com/iamnbutler/open-tv-remote). Open-source and asset notices are preserved in the app and repository.

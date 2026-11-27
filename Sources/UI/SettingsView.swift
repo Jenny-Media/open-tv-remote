@@ -107,7 +107,7 @@ struct SettingsView: View {
                         Text("Just a TV Remote is an independent fork of Open TV Remote by Nathan Butler, released under the MIT License. No ads, analytics or tracking. TV commands stay on your local network; saved TV details and interface preferences can sync through your iCloud account. TV pairing credentials are excluded from settings sync. Optional Jellyfin sign-in tokens can sync through iCloud Keychain.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Link("Just a TV Remote source", destination: URL(string: "https://github.com/xcv58/open-tv-remote/tree/release")!)
+                        Link("Just a TV Remote source", destination: URL(string: "https://github.com/Jenny-Media/open-tv-remote/tree/release")!)
                             .font(.footnote.weight(.semibold))
                         Link("Original project by Nathan Butler", destination: URL(string: "https://github.com/iamnbutler/open-tv-remote")!)
                             .font(.footnote)
