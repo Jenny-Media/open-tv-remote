@@ -5,7 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class RokuDriver: TVDriver {
-    private struct KeyCapabilities {
+    private struct KeyCapabilities: Equatable {
         var isTV = false
         var playerVolume: Bool?
 
@@ -27,6 +27,7 @@ final class RokuDriver: TVDriver {
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var availabilityGeneration = 0
+    @ObservationIgnored private var needsDeviceInfoRetry = false
     private var keyCapabilities = KeyCapabilities()
 
     init(device: TVDevice) {
@@ -35,26 +36,54 @@ final class RokuDriver: TVDriver {
 
     func connect() {
         generation += 1
+        needsDeviceInfoRetry = false
         state = .connecting
         let token = generation
         Task {
             let data = await LocalHTTP.get(base.appending(path: "query/device-info"), timeout: 4)
             guard token == generation else { return }
             guard let data else {
-                state = .failed("Couldn't reach the Roku. Is it on and on the same Wi-Fi?")
+                needsDeviceInfoRetry = true
+                if state == .connecting {
+                    state = .failed("Couldn't reach the Roku. Is it on and on the same Wi-Fi?")
+                }
+                retryDeviceInfoIfReachable()
                 return
             }
-            keyCapabilities = KeyCapabilities(
-                isTV: XMLText.first("is-tv", in: data) == "true",
-                playerVolume: XMLText.first("supports-audio-volume-control", in: data).flatMap(Bool.init)
-            )
-            if let name = XMLText.first("user-device-name", in: data) ?? XMLText.first("friendly-device-name", in: data),
-               name != device.name {
-                device.name = name
-                device.model = XMLText.first("model-name", in: data)
-                delegate?.driver(self, didUpdateDevice: device)
-            }
+            applyDeviceInfo(data)
             state = .connected
+        }
+    }
+
+    private func retryDeviceInfoIfReachable() {
+        guard needsDeviceInfoRetry, state == .connected else { return }
+        // Consume the retry before starting it so successful commands can keep flowing.
+        needsDeviceInfoRetry = false
+        let token = generation
+        let url = base.appending(path: "query/device-info")
+        Task { [weak self] in
+            guard let data = await LocalHTTP.get(url, timeout: 4),
+                  let self, token == generation else { return }
+            applyDeviceInfo(data)
+        }
+    }
+
+    private func applyDeviceInfo(_ data: Data) {
+        var capabilities = keyCapabilities
+        if let isTV = XMLText.first("is-tv", in: data).flatMap(Bool.init) {
+            capabilities.isTV = isTV
+        }
+        if let volume = XMLText.first("supports-audio-volume-control", in: data).flatMap(Bool.init) {
+            capabilities.playerVolume = volume
+        }
+        if capabilities != keyCapabilities {
+            keyCapabilities = capabilities
+        }
+        if let name = XMLText.first("user-device-name", in: data) ?? XMLText.first("friendly-device-name", in: data),
+           name != device.name {
+            device.name = name
+            device.model = XMLText.first("model-name", in: data)
+            delegate?.driver(self, didUpdateDevice: device)
         }
     }
 
@@ -63,6 +92,7 @@ final class RokuDriver: TVDriver {
 
     func disconnect() {
         generation += 1
+        needsDeviceInfoRetry = false
         queue?.cancel()
         state = .idle
     }
@@ -125,6 +155,7 @@ final class RokuDriver: TVDriver {
             case 200?, 202?, 204?:
                 guard request?.isCancelled != true else { return }
                 if self.state != .connected { self.state = .connected }
+                self.retryDeviceInfoIfReachable()
             case 403?:
                 self.state = .failed("Your Roku is blocking remote apps. On the Roku, go to Settings → System → Advanced system settings → Control by mobile apps and set Network access to Default or Permissive.")
             case nil:
