@@ -124,6 +124,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
 
         let remoteStartedOnLeft = stick.frame.midX < swap.frame.midX
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, remoteStartedOnLeft)
         swap.tap()
         defer {
             if swap.isHittable && (stick.frame.midX < swap.frame.midX) != remoteStartedOnLeft { swap.tap() }
@@ -132,7 +135,8 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(log.label, "0:None")
         XCTAssertTrue(app.staticTexts["Volume"].isHittable)
         XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
-        app.buttons["Volume up"].tap()
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, !remoteStartedOnLeft)
+        volume.tap()
         XCTAssertEqual(log.label, "1:Volume up")
         XCTAssertFalse(app.navigationBars["Apps"].exists)
         app.buttons["TV Apps"].tap()
@@ -143,6 +147,7 @@ final class JoystickUITests: XCTestCase {
         launch()
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
         XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(stick.frame.midX < app.buttons["Volume up"].frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(log.label, "0:None")
     }
 
@@ -275,8 +280,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(play.isHittable)
         XCTAssertTrue(volume.isHittable)
         XCTAssertGreaterThan(stick.frame.midY, tv.frame.midY)
-        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
-        XCTAssertGreaterThan(volume.frame.midY, tv.frame.midY)
+        XCTAssertLessThan(play.frame.maxY, stick.frame.minY)
+        XCTAssertLessThan(volume.frame.maxY, stick.frame.minY)
+        XCTAssertGreaterThan(stick.frame.width, app.windows.firstMatch.frame.width * 0.85)
         XCTAssertFalse(app.navigationBars["Apps"].exists)
         play.tap()
         XCTAssertEqual(log.label, "1:Play or pause")
@@ -285,8 +291,102 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5))
         XCTAssertTrue(play.isHittable)
         XCTAssertTrue(volume.isHittable)
-        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        XCTAssertLessThan(play.frame.maxY, app.buttons["q"].frame.minY)
         play.tap()
+    }
+
+    func testTabletopLGCursorLeavesRoomForTheTouchpad() throws {
+        try requireDuoPosture("tabletop")
+        launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+        let touchpad = app.descendants(matching: .any)["lgCursorTouchpad"].firstMatch
+        let settings = app.buttons["lgCursorSettings"]
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(touchpad.waitForExistence(timeout: 5))
+        XCTAssertTrue(touchpad.isHittable)
+        XCTAssertGreaterThan(touchpad.frame.width, app.windows.firstMatch.frame.width * 0.72)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertLessThan(volume.frame.maxY, touchpad.frame.minY)
+        XCTAssertEqual(app.buttons.matching(identifier: "Back").count, 1)
+        XCTAssertTrue(settings.isHittable)
+        settings.tap()
+        XCTAssertTrue(app.navigationBars["Cursor Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Scroll with two fingers or the side strip"].exists)
+    }
+
+    func testTabletopMediaStaysPutWhenTheReportedAppIsMissing() throws {
+        try requireDuoPosture("tabletop")
+        launch(additionalArguments: ["-demoForegroundAppPackage", "com.google.android.youtube.tv"])
+        XCTAssertTrue(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.isHittable)
+        let volumeWithApp = app.buttons["Volume up"].frame
+        let playbackWithApp = app.buttons["Play or pause"].frame
+        XCTAssertGreaterThan(volumeWithApp.height, 0)
+        XCTAssertGreaterThan(playbackWithApp.height, 0)
+        app.terminate()
+
+        launch(additionalArguments: ["-demoForegroundAppPackage", "example.unrecognized"])
+        XCTAssertFalse(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.exists)
+        let volume = app.buttons["Volume up"]
+        let playback = app.buttons["Play or pause"]
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertTrue(playback.isHittable)
+        XCTAssertEqual(volume.frame.midY, volumeWithApp.midY, accuracy: 1)
+        XCTAssertEqual(playback.frame.midY, playbackWithApp.midY, accuracy: 1)
+    }
+
+    func testFoldedVolumeControlsInPortraitAndLandscape() throws {
+        try requireDuoPosture("closed")
+        let device = XCUIDevice.shared
+        let originalOrientation = device.orientation
+        defer {
+            if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
+        }
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeRight] {
+            device.orientation = orientation
+            try assertVolumeControlsInGestureModes(isLandscape: orientation.isLandscape)
+        }
+    }
+
+    func testFlatLandscapeVolumeControlsInGestureModes() throws {
+        try requireDuoPosture("flat-landscape")
+        try assertVolumeControlsInGestureModes(isLandscape: true)
+    }
+
+    private func assertVolumeControlsInGestureModes(isLandscape: Bool) throws {
+        launch()
+        try assertVolumeControls(inputLog: log, isLandscape: isLandscape)
+        app.terminate()
+
+        launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+        XCTAssertTrue(app.descendants(matching: .any)["lgCursorTouchpad"].firstMatch.waitForExistence(timeout: 5))
+        try assertVolumeControls(inputLog: app.staticTexts["demoPadInputLog"], isLandscape: isLandscape)
+        app.terminate()
+    }
+
+    private func assertVolumeControls(inputLog: XCUIElement, isLandscape: Bool) throws {
+        let expectedLayout = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return !frame.isEmpty && (isLandscape ? frame.width > frame.height : frame.height > frame.width)
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expectedLayout], timeout: 5), .completed)
+        let increase = app.buttons["Volume up"]
+        let decrease = app.buttons["Volume down"]
+        let windowFrame = app.windows.firstMatch.frame
+        let volumeGroup = increase.frame.union(decrease.frame)
+        XCTAssertGreaterThan(volumeGroup.midY, windowFrame.minY + windowFrame.height * 2 / 3)
+        for button in [increase, decrease] {
+            XCTAssertTrue(button.isHittable)
+            let capture = button.screenshot().image
+            let bounds = try XCTUnwrap(coloredBounds(in: capture) { red, green, blue in
+                green > 120 && Int(green) - Int(red) > 32 && Int(green) - Int(blue) > 18
+            }, "Missing visible volume glyph on \(button.label)")
+            let aspect = bounds.width * capture.size.width / (bounds.height * capture.size.height)
+            // The speaker extends the plus horizontally and adds height to the minus.
+            XCTAssertTrue((1.25...2.8).contains(aspect), "Expected a speaker glyph on \(button.label); aspect was \(aspect)")
+        }
+        increase.tap()
+        XCTAssertEqual(inputLog.label, "1:Volume up")
+        decrease.tap()
+        XCTAssertEqual(inputLog.label, "2:Volume down")
     }
 
     func testFlatLandscapeEnlargesTheDirectionalPad() throws {
@@ -420,8 +520,12 @@ final class JoystickUITests: XCTestCase {
         add(screenshot)
     }
 
-    /// Returns the fixture's visible bounds as fractions of the captured tile.
     private func blueArtworkBounds(in capture: UIImage) -> CGRect? {
+        coloredBounds(in: capture) { $0 < 70 && $1 < 100 && $2 > 180 }
+    }
+
+    /// Returns the bounds of matching pixels as fractions of the captured image.
+    private func coloredBounds(in capture: UIImage, matching: (UInt8, UInt8, UInt8) -> Bool) -> CGRect? {
         // Draw through UIImage so orientation metadata is applied before measuring pixels.
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -446,7 +550,7 @@ final class JoystickUITests: XCTestCase {
             for y in 0..<height {
                 for x in 0..<width {
                     let offset = y * stride + x * 4
-                    guard bytes[offset] < 70, bytes[offset + 1] < 100, bytes[offset + 2] > 180 else { continue }
+                    guard matching(bytes[offset], bytes[offset + 1], bytes[offset + 2]) else { continue }
                     minX = min(minX, x)
                     minY = min(minY, y)
                     maxX = max(maxX, x)

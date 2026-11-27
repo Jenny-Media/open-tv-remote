@@ -9,13 +9,13 @@ struct CursorScreen: View {
 
     var compactHeight = false
     var wide = false
-    var showsTabletopControls = false
+    var tabletop = false
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
-                       showsTabletopControls: showsTabletopControls,
+                       tabletop: tabletop,
                        mode: Binding(get: { model.remoteControlMode }, set: {
                            Haptics.tap(); model.selectRemoteMode($0)
                        }), modes: model.availableRemoteModes) { command, request in
@@ -47,14 +47,14 @@ private struct CursorControls: View {
     let sessionID: String?
     let compactHeight: Bool
     let wide: Bool
-    let showsTabletopControls: Bool
+    let tabletop: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
     private var inputEnabled: Bool { enabled && scenePhase == .active && !showingCursorSettings }
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
-         wide: Bool = false, showsTabletopControls: Bool = false,
+         wide: Bool = false, tabletop: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
@@ -62,7 +62,7 @@ private struct CursorControls: View {
         self.sessionID = sessionID
         self.compactHeight = compactHeight
         self.wide = wide
-        self.showsTabletopControls = showsTabletopControls
+        self.tabletop = tabletop
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -72,10 +72,15 @@ private struct CursorControls: View {
 
     var body: some View {
         RemoteModeLayout {
-            RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
-                                back: { press(.back) }, home: { press(.home) })
+            HStack(spacing: 8) {
+                RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
+                                    back: { press(.back) }, home: { press(.home) })
+                if tabletop { cursorSettingsButton }
+            }
         } controls: {
-            if compactHeight {
+            if tabletop {
+                controlSurface
+            } else if compactHeight {
                 HStack(spacing: 16) {
                     controlSurface
                     settingsScroll.frame(maxWidth: 250)
@@ -108,14 +113,18 @@ private struct CursorControls: View {
         .onDisappear { sender.stop() }
         .sheet(isPresented: $showingCursorSettings) {
             NavigationStack {
-                Form { preferences }
-                    .formStyle(.grouped)
-                    .navigationTitle("Cursor Settings")
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingCursorSettings = false }
-                        }
+                Form {
+                    Section { preferences } footer: {
+                        if tabletop { Text(scrollHint) }
                     }
+                }
+                .formStyle(.grouped)
+                .navigationTitle("Cursor Settings")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingCursorSettings = false }
+                    }
+                }
             }
             #if os(macOS)
             .frame(minWidth: 350, minHeight: 210)
@@ -126,7 +135,6 @@ private struct CursorControls: View {
     private var settingsScroll: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if showsTabletopControls { DuoQuickControls() }
                 instructions
                 actions
                 cursorSettingsButton
@@ -217,6 +225,10 @@ private struct CursorControls: View {
     private var status: String {
         if !enabled { return "Choose or reconnect to your TV above." }
         if sender.unavailable { return "Cursor not ready. Try again, or reconnect above." }
+        return scrollHint
+    }
+
+    private var scrollHint: String {
         #if os(iOS)
         return "Scroll with two fingers or the side strip"
         #else
@@ -230,7 +242,13 @@ private struct CursorControls: View {
             RoundedRectangle(cornerRadius: 30).strokeBorder(Theme.accent.opacity(0.2))
             VStack(spacing: 12) {
                 Image(systemName: "hand.draw").font(.system(size: 48, weight: .light))
-                if !dynamicTypeSize.isAccessibilitySize {
+                if tabletop {
+                    Text(enabled && !sender.unavailable ? "Drag to move · Tap to click" : status)
+                        .font(.subheadline)
+                        .foregroundStyle(sender.unavailable ? Theme.power : Theme.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                } else if !dynamicTypeSize.isAccessibilitySize {
                     Text("Look at your TV").font(.system(.body, design: .rounded).weight(.medium))
                 }
             }
