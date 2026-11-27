@@ -86,6 +86,7 @@ final class AppModel: TVDriverDelegate {
     }
     @ObservationIgnored private var relocateTask: Task<Void, Never>?
     @ObservationIgnored private var relocationAttempted = false
+    @ObservationIgnored private var pairingFeedback = PairingFeedback()
 
     var current: TVDevice? { devices.first { $0.id == currentID } }
 
@@ -163,6 +164,7 @@ final class AppModel: TVDriverDelegate {
     // MARK: Devices
 
     func select(_ device: TVDevice) {
+        if device.id != currentID { Haptics.selection() }
         #if os(iOS)
         remoteActivity.resume(device.id)
         #endif
@@ -178,6 +180,7 @@ final class AppModel: TVDriverDelegate {
         devices.removeAll { $0.id == device.id }
         DeviceStore.save(devices)
         if device.id == currentID {
+            pairingFeedback.cancel()
             driver?.disconnect()
             driver = nil
             currentID = nil
@@ -192,6 +195,7 @@ final class AppModel: TVDriverDelegate {
     }
 
     private func activate(_ device: TVDevice) {
+        pairingFeedback.cancel()
         driver?.disconnect()
         relocateTask?.cancel()
         relocateTask = nil
@@ -263,6 +267,7 @@ final class AppModel: TVDriverDelegate {
         remoteActivity.sceneDidEnterBackground()
         #endif
         if case .pairing = state { return }
+        pairingFeedback.cancel()
         driver?.disconnect()
     }
 
@@ -290,6 +295,7 @@ final class AppModel: TVDriverDelegate {
         relocateTask = nil
         isRelocating = false
         discovery.stop()
+        pairingFeedback.cancel()
         driver?.disconnect()
         state = .idle
     }
@@ -370,15 +376,27 @@ final class AppModel: TVDriverDelegate {
 
     /// Explicit user action — this is the only path that puts something on the TV screen.
     func startPairing() {
+        guard let driver else { return }
         #if os(iOS)
         if let currentID { remoteActivity.resume(currentID) }
         #endif
-        driver?.pair()
+        pairingFeedback.start()
+        driver.pair()
     }
 
-    func submitPairingCode(_ code: String) { driver?.submitPairingCode(code) }
+    func submitPairingCode(_ code: String) {
+        guard let driver else { return }
+        let previousState = driver.state
+        driver.submitPairingCode(code)
+        // A repeated local rejection can leave the driver's error state unchanged.
+        if previousState == driver.state, case .pairing(.enterCode(_, .some)) = driver.state,
+           let outcome = pairingFeedback.receive(driver.state) {
+            Haptics.outcome(outcome)
+        }
+    }
 
     func cancelPairing() {
+        pairingFeedback.cancel()
         driver?.disconnect()
         driver?.connect()
     }
@@ -474,8 +492,9 @@ final class AppModel: TVDriverDelegate {
             return
         }
         guard typesLive else {
-            Haptics.tick()
+            guard !typed.isEmpty else { return }
             typeDelete()
+            request.onDispatch?()
             return
         }
         guard supports(.backspace) else {
@@ -483,15 +502,16 @@ final class AppModel: TVDriverDelegate {
             return
         }
         guard pendingTypeDelete == nil, remoteInputAvailable else { return }
-        Haptics.tick()
         pendingTypeDelete = request
+        let onRepeatDispatch = request.onDispatch
         request.onDispatch = { [weak self, weak request] in
             guard let self, let request, self.pendingTypeDelete === request else { return }
             self.pendingTypeDelete = nil
             if !self.typed.isEmpty { self.typed.removeLast() }
+            onRepeatDispatch?()
         }
         defer {
-            request.onDispatch = nil
+            request.onDispatch = onRepeatDispatch
             if pendingTypeDelete === request { pendingTypeDelete = nil }
         }
         await pressInteractively(.backspace, request: request)
@@ -585,6 +605,9 @@ final class AppModel: TVDriverDelegate {
     func driver(_ driver: TVDriver, didChangeState state: ConnectionState) {
         guard driver === self.driver else { return }
         guard !isConnectionPaused else { self.state = .idle; return }
+        if self.state != state, let outcome = pairingFeedback.receive(state) {
+            Haptics.outcome(outcome)
+        }
         self.state = state
         if case .failed = state, let current {
             relocate(current)

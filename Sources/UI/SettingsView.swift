@@ -4,6 +4,9 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var showingDevices = false
+    #if os(iOS)
+    @AppStorage(Haptics.preferenceKey) private var hapticsEnabled = true
+    #endif
 
     private var openSourceLicense: String {
         guard let url = Bundle.main.url(forResource: "OpenRemote-LICENSE", withExtension: "txt"),
@@ -34,6 +37,12 @@ struct SettingsView: View {
                 }
 
                 #if os(iOS)
+                Section {
+                    Toggle("Haptic Feedback", isOn: $hapticsEnabled)
+                } footer: {
+                    Text("Controls feedback added by Just a TV Remote.")
+                }
+
                 Section {
                     Toggle("Show remote automatically", isOn: Binding {
                         model.remoteActivity.options.automatic

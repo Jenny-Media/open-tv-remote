@@ -3,6 +3,37 @@ import CoreGraphics
 import Testing
 @testable import JoystickCore
 
+@MainActor
+@Suite("Held button feedback")
+struct HeldButtonFeedbackTests {
+    @Test func cancelledQueueWorkDoesNotPulseAndDispatchedRepeatsAreSpaced() {
+        let start = ContinuousClock.now
+        var time = start
+        var cadence = RepeatFeedbackCadence()
+        var pulses = 0
+        var isCurrent = false
+        let request = RemoteInputRequest(isRepeat: true, isCurrent: { isCurrent })
+        request.onDispatch = { if cadence.consume(at: time) { pulses += 1 } }
+
+        #expect(!request.beginDispatch())
+        #expect(pulses == 0)
+
+        isCurrent = true
+        #expect(request.beginDispatch())
+        time = start.advanced(by: .milliseconds(110))
+        #expect(request.beginDispatch())
+        #expect(pulses == 1)
+
+        time = start.advanced(by: .milliseconds(500))
+        #expect(request.beginDispatch())
+        #expect(pulses == 2)
+        request.cancel()
+        time = start.advanced(by: .seconds(1))
+        #expect(!request.beginDispatch())
+        #expect(pulses == 2)
+    }
+}
+
 @Suite("Eyes-free gesture")
 struct JoystickGestureTests {
     @Test func aBriefTapSelectsAndResets() {

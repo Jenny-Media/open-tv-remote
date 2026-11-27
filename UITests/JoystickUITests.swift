@@ -24,6 +24,16 @@ final class JoystickUITests: XCTestCase {
     private var stick: XCUIElement { app.descendants(matching: .any).matching(identifier: "eyesFreeStick").firstMatch }
     private var count: Int { Int(log.label.split(separator: ":").first ?? "-1") ?? -1 }
 
+    func testHapticFeedbackSettingReflectsTheConfiguredPreference() {
+        for value in ["NO", "YES"] {
+            launch(openMode: false, additionalArguments: ["-demoSheet", "settings", "-haptics.enabled", value])
+            let haptics = app.switches["Haptic Feedback"]
+            XCTAssertTrue(haptics.waitForExistence(timeout: 5))
+            XCTAssertEqual(haptics.value as? String, value == "YES" ? "1" : "0")
+            app.terminate()
+        }
+    }
+
     func testFirstRemoteGuideAfterPairingASavedTVCanBeSkippedAndReopened() {
         let arguments = ["-demoGuideTestProfile", UUID().uuidString]
         launch(openMode: false, additionalArguments: arguments + ["-demoUnpaired", "YES"])

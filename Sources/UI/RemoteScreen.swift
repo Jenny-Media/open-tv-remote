@@ -298,11 +298,15 @@ struct RemoteScreen: View {
     }
 
     private var navRow: some View {
-        RemoteNavigationRow(selection: Binding(get: { model.remoteControlMode }, set: {
-            Haptics.tap()
-            model.selectRemoteMode($0)
-        }), modes: model.availableRemoteModes, enabled: model.remoteCommandsAvailable,
-        back: { model.press(.back) }, home: { model.press(.home) })
+        RemoteNavigationRow(selection: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
+                            modes: model.availableRemoteModes, enabled: model.remoteCommandsAvailable,
+                            back: { sendNavigation(.back) }, home: { sendNavigation(.home) })
+    }
+
+    private func sendNavigation(_ key: RemoteKey) {
+        guard model.supports(key) else { return }
+        Haptics.tap()
+        model.press(key)
     }
 
     @ViewBuilder private var pad: some View {

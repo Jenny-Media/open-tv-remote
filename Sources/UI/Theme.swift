@@ -16,28 +16,40 @@ enum Theme {
 }
 
 enum Haptics {
+    static let preferenceKey = "haptics.enabled"
+
     #if os(iOS)
+    private static var canPlay: Bool {
+        UIApplication.shared.applicationState == .active &&
+            (UserDefaults.standard.object(forKey: preferenceKey) as? Bool ?? true)
+    }
+
     private static let light = UIImpactFeedbackGenerator(style: .light)
     private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private static let firm = UIImpactFeedbackGenerator(style: .medium)
     private static let repeatPulse = UIImpactFeedbackGenerator(style: .light)
     private static let cursorPulse = UIImpactFeedbackGenerator(style: .light)
+    private static let selectionFeedback = UISelectionFeedbackGenerator()
+    private static let notificationFeedback = UINotificationFeedbackGenerator()
     #endif
 
     static func tap() {
         #if os(iOS)
+        guard canPlay else { return }
         light.impactOccurred()
         #endif
     }
 
     static func tick() {
         #if os(iOS)
+        guard canPlay else { return }
         rigid.impactOccurred(intensity: 0.6)
         #endif
     }
 
     static func joystickStart() {
         #if os(iOS)
+        guard canPlay else { return }
         firm.impactOccurred(intensity: 0.8)
         repeatPulse.prepare()
         #endif
@@ -45,6 +57,7 @@ enum Haptics {
 
     static func cursorStart() {
         #if os(iOS)
+        guard canPlay else { return }
         firm.impactOccurred(intensity: 0.8)
         cursorPulse.prepare()
         #endif
@@ -52,17 +65,31 @@ enum Haptics {
 
     static func cursorTick() {
         #if os(iOS)
+        guard canPlay else { return }
         cursorPulse.impactOccurred()
         cursorPulse.prepare()
         #endif
     }
 
-    static func joystickRepeat() {
+    static func repeatTick() {
         #if os(iOS)
-        // Use the standard light impact at its normal strength: gentler than the
-        // medium start, but more distinct than a low-intensity soft waveform.
+        guard canPlay else { return }
         repeatPulse.impactOccurred()
         repeatPulse.prepare()
+        #endif
+    }
+
+    static func selection() {
+        #if os(iOS)
+        guard canPlay else { return }
+        selectionFeedback.selectionChanged()
+        #endif
+    }
+
+    static func outcome(_ outcome: InteractionOutcome) {
+        #if os(iOS)
+        guard canPlay else { return }
+        notificationFeedback.notificationOccurred(outcome == .success ? .success : .error)
         #endif
     }
 }
@@ -124,8 +151,10 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { fire() }
             .accessibilityActions {
-                if let holdAction { Button(holdName, action: holdAction) }
+                if let holdAction { Button(holdName) { fireHold(holdAction) } }
             }
+            .disabled(!enabled)
+            .onChange(of: enabled) { _, enabled in if !enabled { stopRepeating() } }
     }
 
     @ViewBuilder private var interaction: some View {
@@ -133,10 +162,8 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
         if let holdAction {
             face(pressed: holdHighlighted)
                 .overlay {
-                    HoldKeyCapTarget(tap: fire, hold: {
-                        Haptics.tick()
-                        holdAction()
-                    }, highlight: { holdHighlighted = $0 })
+                    HoldKeyCapTarget(tap: { fire() }, hold: { fireHold(holdAction) },
+                                     highlight: { holdHighlighted = $0 })
                     .accessibilityHidden(true)
                 }
         } else {
@@ -168,15 +195,14 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             )
             .onChange(of: dragPress == .inside) { _, isPressed in
                 stopRepeating()
-                guard isPressed, isEnabled else { return }
+                guard isPressed, enabled, isEnabled else { return }
                 if let holdAction {
                     held = false
                     repeatTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(700))
                         guard !Task.isCancelled else { return }
                         held = true
-                        Haptics.tick()
-                        holdAction()
+                        fireHold(holdAction)
                     }
                     return
                 }
@@ -202,10 +228,16 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
     }
 
-    private func fire() {
-        guard isEnabled else { return }
-        Haptics.tap()
+    private func fire(playsFeedback: Bool = true) {
+        guard enabled, isEnabled else { return }
+        if playsFeedback { Haptics.tap() }
         action()
+    }
+
+    private func fireHold(_ holdAction: () -> Void) {
+        guard enabled, isEnabled else { return }
+        Haptics.tick()
+        holdAction()
     }
 
     private func startRepeating() {
@@ -214,6 +246,10 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
         let request = repeatAction.map { _ in
             RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
                                deadline: deadline, isCurrent: isCurrent)
+        }
+        var feedback = RepeatFeedbackCadence()
+        request?.onDispatch = {
+            if feedback.consume(at: .now) { Haptics.repeatTick() }
         }
         repeatRequest = request
         repeatTask = Task { @MainActor in
@@ -225,7 +261,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                 if let repeatAction, let request {
                     await repeatAction(request)
                 } else {
-                    fire()
+                    fire(playsFeedback: false)
                 }
                 try? await Task.sleep(for: .milliseconds(110))
             }
@@ -385,7 +421,6 @@ extension AppModel {
                 return
             }
             guard self.remoteInputAvailable else { return }
-            Haptics.tick()
             await self.pressInteractively(key, request: request)
         }
     }

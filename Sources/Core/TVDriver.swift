@@ -22,6 +22,31 @@ enum ConnectionState: Equatable, Sendable {
     var isConnected: Bool { self == .connected }
 }
 
+enum InteractionOutcome: Equatable { case success, error }
+
+struct PairingFeedback {
+    private var isActive = false
+
+    mutating func start() { isActive = true }
+    mutating func cancel() { isActive = false }
+
+    mutating func receive(_ state: ConnectionState) -> InteractionOutcome? {
+        guard isActive else { return nil }
+        switch state {
+        case .connected:
+            cancel()
+            return .success
+        case .failed:
+            cancel()
+            return .error
+        case .pairing(.enterCode(_, .some)):
+            return .error
+        default:
+            return nil
+        }
+    }
+}
+
 /// Something the TV can open: either an installed app reported by the TV, or a catalog entry.
 struct TVApp: Identifiable, Hashable, Sendable {
     var id: String { launchID }

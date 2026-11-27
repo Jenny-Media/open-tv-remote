@@ -40,7 +40,11 @@ private struct RemoteModePicker: View {
             if !dynamicTypeSize.isAccessibilitySize && geo.size.width >= CGFloat(modes.count) * 44 + 10 {
                 HStack(spacing: 0) {
                     ForEach(modes) { mode in
-                        Button { selection = mode } label: {
+                        Button {
+                            guard selection != mode else { return }
+                            selection = mode
+                            Haptics.selection()
+                        } label: {
                             Image(systemName: mode.symbol)
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(selection == mode ? Color.black : Theme.secondary)

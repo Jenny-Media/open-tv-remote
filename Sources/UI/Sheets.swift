@@ -81,7 +81,10 @@ struct PairingSheet: View {
                     .opacity(0.02)
                     .onChange(of: code) { _, new in
                         let cleaned = String(new.uppercased().filter(\.isHexDigit).prefix(length))
-                        if cleaned != new { code = cleaned }
+                        if cleaned != new {
+                            code = cleaned
+                            return
+                        }
                         if cleaned.count == length { model.submitPairingCode(cleaned) }
                     }
                 HStack(spacing: 8) {
@@ -141,7 +144,7 @@ struct KeyboardSheet: View {
                     .focused($focused)
                     .autocorrectionDisabled()
                     .submitLabel(.send)
-                    .onSubmit(send)
+                    .onSubmit { send(playsFeedback: false) }
                     .padding(.horizontal, 14)
                     .frame(height: 48)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
@@ -151,7 +154,9 @@ struct KeyboardSheet: View {
                     Image(systemName: "delete.left").font(.system(size: 17, weight: .semibold))
                 }
                 .frame(width: 52, height: 48)
-                Button(action: send) {
+                Button {
+                    send(playsFeedback: true)
+                } label: {
                     Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(.black)
                         .frame(width: 48, height: 48)
                         .background(Circle().fill(Theme.accent))
@@ -177,8 +182,9 @@ struct KeyboardSheet: View {
     }
 
     /// Sends the whole text at once, then gets out of the way so the TV's search can be navigated.
-    private func send() {
+    private func send(playsFeedback: Bool) {
         guard !text.isEmpty else { return }
+        if playsFeedback { Haptics.tap() }
         model.sendText(text)
         dismiss()
     }

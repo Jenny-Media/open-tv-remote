@@ -52,6 +52,16 @@ struct JoystickGesture {
 
 /// Cancellation belongs to the input, not the connection. A driver waiting for
 /// its turn can discard stale input without cancelling a shared WebSocket.
+struct RepeatFeedbackCadence {
+    private var lastPulse: ContinuousClock.Instant?
+
+    mutating func consume(at time: ContinuousClock.Instant) -> Bool {
+        if let lastPulse, time - lastPulse < .milliseconds(500) { return false }
+        lastPulse = time
+        return true
+    }
+}
+
 @MainActor
 final class RemoteInputRequest {
     enum Feedback { case firm, soft, none }
