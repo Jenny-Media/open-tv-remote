@@ -16,6 +16,10 @@ struct RemoteWindowLayout {
         arrangement != .book && controls.width >= 440 && controls.height < 440 && controls.width > controls.height
     }
 
+    var fitsTabletControlPanels: Bool {
+        hasWideFlatSurface && controls.width >= 760
+    }
+
     init(size: CGSize, division: CGRect?, occlusions: [CGRect] = [], bookRemoteOnRight: Bool = false) {
         let window = CGRect(origin: .zero, size: size)
         let fold = division?.intersection(window)

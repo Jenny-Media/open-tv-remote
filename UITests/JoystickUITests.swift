@@ -12,9 +12,10 @@ final class JoystickUITests: XCTestCase {
         app?.terminate()
     }
 
-    private func launch(openMode: Bool = true, additionalArguments: [String] = []) {
+    private func launch(openMode: Bool = true, logInput: Bool = true, additionalArguments: [String] = []) {
         app = XCUIApplication()
-        app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0", "-demoInputLog", "YES", "-demoEyesFree", openMode ? "YES" : "NO"]
+        app.launchArguments = ["-demo", "-jellyfin.enabled", "NO", "-page", "0",
+                               "-demoInputLog", logInput ? "YES" : "NO", "-demoEyesFree", openMode ? "YES" : "NO"]
         app.launchArguments += additionalArguments
         app.launch()
         if openMode { XCTAssertTrue(stick.waitForExistence(timeout: 10)) }
@@ -159,6 +160,122 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(stick.frame.midX < app.buttons["Volume up"].frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(log.label, "0:None")
+    }
+
+    func testIPadLandscapeControlsSwapAndKeepTVAppsOnDemand() throws {
+        try requireIPad()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .landscapeRight
+        launch()
+
+        let swap = app.buttons["ipadSwapSides"]
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
+        let startedOnLeft = stick.frame.midX < volume.frame.midX
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "iPad landscape joystick"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        swap.tap()
+        defer {
+            if swap.isHittable, (stick.frame.midX < volume.frame.midX) != startedOnLeft { swap.tap() }
+        }
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, !startedOnLeft)
+        XCTAssertEqual(log.label, "0:None")
+        volume.tap()
+        XCTAssertEqual(log.label, "1:Volume up")
+
+        let apps = app.navigationBars["Apps"]
+        XCTAssertFalse(apps.exists)
+        app.buttons["TV Apps"].tap()
+        XCTAssertTrue(apps.waitForExistence(timeout: 5))
+        apps.buttons["Done"].tap()
+        XCTAssertTrue(stick.isHittable)
+
+        app.terminate()
+        launch(logInput: false)
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, !startedOnLeft)
+
+        selectMode("standard", title: "Directional pad")
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        XCTAssertTrue(ok.isHittable)
+        XCTAssertEqual(ok.frame.midX < volume.frame.midX, !startedOnLeft)
+        let directional = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        directional.name = "iPad landscape directional pad"
+        directional.lifetime = .keepAlways
+        add(directional)
+
+        device.orientation = .portrait
+        XCTAssertTrue(swap.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(ok.isHittable)
+    }
+
+    func testIPadKeyboardKeepsNavigationAndKeysTogether() throws {
+        try requireIPad()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard"])
+
+        let home = app.buttons["Home"]
+        let ok = app.buttons["OK"]
+        let letter = app.buttons["a"]
+        let portraitFrame = app.frame
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeRight] {
+            device.orientation = orientation
+            if orientation.isLandscape { waitForLandscapeIfExpected(portraitFrame) }
+            XCTAssertTrue(letter.waitForExistence(timeout: 5))
+            XCTAssertTrue(home.isHittable)
+            XCTAssertTrue(ok.isHittable)
+            XCTAssertTrue(letter.isHittable)
+            XCTAssertLessThan(ok.frame.minY - home.frame.maxY, 80)
+            XCTAssertLessThan(letter.frame.minY - ok.frame.maxY, 210)
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screenshot.name = orientation == .portrait ? "iPad portrait keyboard" : "iPad landscape keyboard"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+    }
+
+    func testIPadLandscapeCursorKeepsSettingsAndVolumeReachable() throws {
+        try requireIPad()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .landscapeRight
+        launch(openMode: false, logInput: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+
+        let settings = app.buttons["lgCursorSettings"]
+        let touchpad = app.descendants(matching: .any).matching(identifier: "lgCursorTouchpad").firstMatch
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        XCTAssertTrue(touchpad.isHittable)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
+        XCTAssertGreaterThan(touchpad.frame.height, 240)
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "iPad landscape LG cursor"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        settings.tap()
+        let sheet = app.navigationBars["Cursor Settings"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.sliders["Cursor speed"].isHittable)
+        sheet.buttons["Done"].tap()
+        XCTAssertTrue(touchpad.isHittable)
+    }
+
+    private func requireIPad() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Requires an iPad simulator.")
     }
 
     func testBookPlaybackRepeatsWaitForThePreviousRequestAndStopOnRelease() throws {

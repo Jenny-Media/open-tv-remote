@@ -35,6 +35,18 @@ struct RemoteWindowLayoutTests {
         #expect(!layout.hasWideFlatSurface)
     }
 
+    @Test func tabletPanelsRequireRoomForBothControlGroups() {
+        let wide = RemoteWindowLayout(size: CGSize(width: 760, height: 640), division: nil)
+        let narrow = RemoteWindowLayout(size: CGSize(width: 759, height: 640), division: nil)
+        let short = RemoteWindowLayout(size: CGSize(width: 900, height: 439), division: nil)
+        let portrait = RemoteWindowLayout(size: CGSize(width: 834, height: 1194), division: nil)
+
+        #expect(wide.fitsTabletControlPanels)
+        #expect(!narrow.fitsTabletControlPanels)
+        #expect(!short.fitsTabletControlPanels)
+        #expect(!portrait.fitsTabletControlPanels)
+    }
+
     @Test func bookKeepsRemoteAndShortcutsOnEitherSideOfTheFold() throws {
         let fold = CGRect(x: 315, y: 0, width: 42, height: 760)
         let layout = RemoteWindowLayout(size: CGSize(width: 720, height: 760), division: fold)
