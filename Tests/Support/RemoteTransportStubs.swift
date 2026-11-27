@@ -45,11 +45,15 @@ enum LocalHTTP {
     static var completions: [String: CheckedContinuation<Int?, Never>] = [:]
     static var deviceInfo = Data("<device-info/>".utf8)
     static var delaysDeviceInfo = false
+    private(set) static var deviceInfoReads = 0
     private(set) static var deviceInfoRequest: CheckedContinuation<Data?, Never>?
 
     static func get(_ url: URL, timeout: TimeInterval = 3) async -> Data? {
-        if delaysDeviceInfo && url.path == "/query/device-info" {
-            return await withCheckedContinuation { deviceInfoRequest = $0 }
+        if url.path == "/query/device-info" {
+            deviceInfoReads += 1
+            if delaysDeviceInfo {
+                return await withCheckedContinuation { deviceInfoRequest = $0 }
+            }
         }
         return deviceInfo
     }
@@ -60,8 +64,8 @@ enum LocalHTTP {
     static func complete(_ path: String, status: Int? = 200) {
         completions.removeValue(forKey: path)?.resume(returning: status)
     }
-    static func completeDeviceInfo() {
-        deviceInfoRequest?.resume(returning: deviceInfo)
+    static func completeDeviceInfo(success: Bool = true) {
+        deviceInfoRequest?.resume(returning: success ? deviceInfo : nil)
         deviceInfoRequest = nil
     }
     static func reset() {
@@ -71,6 +75,7 @@ enum LocalHTTP {
         deviceInfoRequest?.resume(returning: nil)
         deviceInfoRequest = nil
         delaysDeviceInfo = false
+        deviceInfoReads = 0
         deviceInfo = Data("<device-info/>".utf8)
     }
 }

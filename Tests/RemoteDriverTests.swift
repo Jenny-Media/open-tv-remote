@@ -159,6 +159,82 @@ struct RemoteDriverTests {
         driver.disconnect()
     }
 
+    @Test(arguments: [false, true])
+    func rokuRetriesDeviceInfoOnceWhenCommandsProveReachability(_ homeSucceedsFirst: Bool) async {
+        LocalHTTP.reset()
+        LocalHTTP.delaysDeviceInfo = true
+        LocalHTTP.deviceInfo = Data("<device-info><is-tv>true</is-tv></device-info>".utf8)
+        let driver = RokuDriver(device: TVDevice(name: "Test Roku", brand: .roku, host: "192.0.2.10"))
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.connect()
+        await waitUntil { LocalHTTP.deviceInfoRequest != nil }
+        if !homeSucceedsFirst {
+            LocalHTTP.completeDeviceInfo(success: false)
+            await waitUntil { if case .failed = driver.state { true } else { false } }
+            #expect(LocalHTTP.deviceInfoReads == 1)
+        }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        LocalHTTP.complete("/keypress/Home")
+        await waitUntil { driver.state == .connected }
+        if homeSucceedsFirst {
+            #expect(LocalHTTP.deviceInfoReads == 1)
+            LocalHTTP.completeDeviceInfo(success: false)
+        }
+        await waitUntil { LocalHTTP.deviceInfoReads == 2 && LocalHTTP.deviceInfoRequest != nil }
+        #expect(driver.state == .connected)
+        #expect(!driver.supports(.input))
+
+        // A pending lookup must leave the command queue free and must not start another read.
+        driver.send(.back)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home", "/keypress/Back"] }
+        LocalHTTP.complete("/keypress/Back")
+        LocalHTTP.completeDeviceInfo()
+        await waitUntil { driver.supports(.input) }
+        #expect(LocalHTTP.deviceInfoReads == 2)
+        #expect(driver.state == .connected)
+    }
+
+    @Test func rokuKeepsConfirmedVolumeSupportWhenTheRetryFailsOrTheFieldIsMissing() async {
+        let driver = await connectedRoku(isTV: false, playerVolume: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        #expect(!driver.supports(.volumeUp))
+        LocalHTTP.delaysDeviceInfo = true
+        driver.connect()
+        await waitUntil { LocalHTTP.deviceInfoRequest != nil }
+        LocalHTTP.completeDeviceInfo(success: false)
+        await waitUntil { if case .failed = driver.state { true } else { false } }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        LocalHTTP.complete("/keypress/Home")
+        await waitUntil { LocalHTTP.deviceInfoReads == 3 && LocalHTTP.deviceInfoRequest != nil }
+        LocalHTTP.completeDeviceInfo(success: false)
+
+        driver.send(.back)
+        driver.send(.select)
+        await waitUntil { LocalHTTP.started.last == "/keypress/Back" }
+        LocalHTTP.complete("/keypress/Back")
+        await waitUntil { LocalHTTP.started.last == "/keypress/Select" }
+        LocalHTTP.complete("/keypress/Select")
+        #expect(LocalHTTP.deviceInfoReads == 3)
+        #expect(LocalHTTP.deviceInfoRequest == nil)
+        #expect(driver.state == .connected)
+        #expect(!driver.supports(.volumeUp))
+
+        LocalHTTP.deviceInfo = Data("<device-info><is-tv>false</is-tv></device-info>".utf8)
+        driver.connect()
+        await waitUntil { LocalHTTP.deviceInfoReads == 4 && LocalHTTP.deviceInfoRequest != nil }
+        LocalHTTP.completeDeviceInfo()
+        await waitUntil { driver.state == .connected }
+        #expect(!driver.supports(.volumeUp))
+    }
+
     @Test func rokuDropsVolumeQueuedBeforeDeviceInfoReportsItUnsupported() async {
         let driver = await connectedRoku(isTV: false, playerVolume: true)
         LocalHTTP.delaysDeviceInfo = true
