@@ -15,6 +15,9 @@ struct RemoteScreen: View {
     @State private var heldHardwareKeys: Set<Character> = []
     #if os(iOS)
     @AppStorage("duo.bookRemoteOnRight") private var bookRemoteOnRight = false
+    @AppStorage("ipad.remoteOnRight") private var tabletRemoteOnRight = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.layoutDirection) private var layoutDirection
     #endif
 
     var body: some View {
@@ -51,15 +54,23 @@ struct RemoteScreen: View {
             let layout = windowLayout(in: geometry)
             let tabletop = layout.arrangement == .tabletop
             let book = layout.arrangement == .book
+            let tablet = UIDevice.current.userInterfaceIdiom == .pad
+            let tabletPanels = tablet && layout.fitsTabletControlPanels && !dynamicTypeSize.isAccessibilitySize && mode != .keyboard
             let wide = UIDevice.current.userInterfaceIdiom == .phone && usesSystemToolbar && layout.hasWideFlatSurface
 
             ZStack {
                 HStack(alignment: .top, spacing: 0) {
-                    remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
-                           compactHeight: tabletop || layout.usesTrailingShortcuts,
-                           showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts)
-                    if !usesSystemToolbar && !tabletop && layout.usesTrailingShortcuts {
-                        shortcutColumn
+                    if tabletPanels {
+                        tabletLandscapeRemote
+                            .id(tabletRemoteOnRight)
+                    } else {
+                        remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
+                               compactHeight: tabletop || layout.usesTrailingShortcuts,
+                               showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
+                               tablet: tablet)
+                        if !usesSystemToolbar && !tabletop && layout.usesTrailingShortcuts {
+                            shortcutColumn
+                        }
                     }
                 }
                     // Recreate transient input when its hit targets move. The selected TV,
@@ -83,10 +94,11 @@ struct RemoteScreen: View {
                     .position(x: companion.midX, y: companion.midY)
                 }
             }
-            .preference(key: RemotePaneControlsKey.self, value: book || tabletop)
+            .preference(key: RemotePaneControlsKey.self, value: book || tabletop || tabletPanels)
             .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: layout.arrangement) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: usesSystemToolbar) { _, _ in heldHardwareKeys.removeAll() }
+            .onChange(of: tabletRemoteOnRight) { _, _ in heldHardwareKeys.removeAll() }
         }
     }
 
@@ -114,24 +126,93 @@ struct RemoteScreen: View {
                 }
                 DuoQuickControls(showsInput: true)
                     .id(model.remoteControlMode)
-                Button {
-                    Haptics.tap()
-                    bookRemoteOnRight.toggle()
-                } label: {
-                    Label("Swap Sides", systemImage: "arrow.left.arrow.right")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(minHeight: 44)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint(bookRemoteOnRight ? "Move the main remote to the left" : "Move the main remote to the right")
-                .accessibilityIdentifier("bookSwapSides")
+                swapSidesButton(remoteOnRight: $bookRemoteOnRight, identifier: "bookSwapSides")
             }
             .frame(maxWidth: 300)
             .padding(16)
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var tabletLandscapeRemote: some View {
+        VStack(spacing: 12) {
+            remoteHeader(showTV: true, showsShortcuts: !usesSystemToolbar)
+                .frame(maxWidth: 620)
+            GeometryReader { geo in
+                let remoteWidth = min(430, geo.size.width * 0.54)
+                let companionWidth = min(320, geo.size.width * 0.38)
+                let height = min(480, max(0, geo.size.height - 16))
+                HStack(spacing: 16) {
+                    tabletMainControls
+                        .environment(\.layoutDirection, layoutDirection)
+                        .frame(width: remoteWidth)
+                        .accessibilitySortPriority(1)
+                    Spacer(minLength: 0)
+                    tabletCompanion
+                        .environment(\.layoutDirection, layoutDirection)
+                        .frame(width: companionWidth)
+                }
+                // The preference chooses a physical side in every language.
+                .environment(\.layoutDirection, tabletRemoteOnRight ? .rightToLeft : .leftToRight)
+                .frame(height: height)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(.top, 8)
+        .overlay(alignment: .bottomTrailing) { inputLog }
+    }
+
+    @ViewBuilder private var tabletMainControls: some View {
+        switch model.remoteControlMode {
+        case .standard, .keypad, .keyboard:
+            RemoteModeLayout { navRow } controls: {
+                pad
+                    .frame(maxWidth: 380, maxHeight: 380)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        case .eyesFree:
+            JoystickScreen(compactHeight: true)
+        case .cursor:
+            CursorScreen(surfaceOnly: true)
+        }
+    }
+
+    private var tabletCompanion: some View {
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 20) {
+                    if model.current != nil {
+                        if model.remoteControlMode.isGestureMode {
+                            DuoQuickControls(showsInput: true)
+                        } else {
+                            controls(book: false)
+                        }
+                    }
+                    swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                }
+                .id(model.remoteControlMode)
+                .frame(minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private func swapSidesButton(remoteOnRight: Binding<Bool>, identifier: String) -> some View {
+        Button {
+            Haptics.tap()
+            remoteOnRight.wrappedValue.toggle()
+        } label: {
+            Label("Swap Sides", systemImage: "arrow.left.arrow.right")
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityHint(remoteOnRight.wrappedValue ? "Move the main remote to the left" : "Move the main remote to the right")
+        .accessibilityIdentifier(identifier)
     }
 
     private func tabletopCompanion(groupsSideBySide: Bool) -> some View {
@@ -191,44 +272,53 @@ struct RemoteScreen: View {
     #endif
 
     private func remote(showHeader: Bool, tabletop: Bool, book: Bool = false, wide: Bool = false, compactHeight: Bool = false,
-                        showsShortcuts: Bool = true) -> some View {
-        VStack(spacing: compactHeight ? 6 : 12) {
-            if showsShortcuts {
-                TopBar(showsTVSelection: showHeader)
-            } else if showHeader {
-                TVSelectionButton().frame(minHeight: 40)
-            }
-            if showHeader { StatusBanner() }
+                        showsShortcuts: Bool = true, tablet: Bool = false) -> some View {
+        let tabletKeyboard = tablet && mode == .keyboard
+        return VStack(spacing: compactHeight ? 6 : 12) {
+            remoteHeader(showTV: showHeader, showsShortcuts: showsShortcuts)
             switch model.remoteControlMode {
             case .standard, .keyboard, .keypad:
-                standardMode(compactHeight: compactHeight, tabletop: tabletop, book: book, wide: wide)
+                standardMode(compactHeight: compactHeight, tabletop: tabletop, book: book, wide: wide, tablet: tablet)
             case .eyesFree:
                 JoystickScreen(compactHeight: compactHeight)
             case .cursor:
-                CursorScreen(compactHeight: compactHeight, wide: wide, tabletop: tabletop)
+                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .frame(maxWidth: wide || compactHeight ? .infinity : 600)
+        .frame(maxWidth: tabletKeyboard ? 720 : wide || compactHeight ? .infinity : 600)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .environment(\.adaptiveKeyboardLayout, book || tabletop || wide)
+        .environment(\.adaptiveKeyboardLayout, book || tabletop || wide || tablet)
+        .overlay(alignment: .bottomTrailing) { inputLog }
+    }
+
+    @ViewBuilder private func remoteHeader(showTV: Bool, showsShortcuts: Bool) -> some View {
+        if showsShortcuts {
+            TopBar(showsTVSelection: showTV)
+        } else if showTV {
+            TVSelectionButton().frame(minHeight: 40)
+        }
+        if showTV { StatusBanner() }
+    }
+
+    @ViewBuilder private var inputLog: some View {
         #if DEBUG
-        .overlay(alignment: .bottomTrailing) {
-            if DemoMode.isEnabled, model.remoteControlMode != .eyesFree,
-               UserDefaults.standard.bool(forKey: "demoInputLog") {
-                Text("\(model.demoInputCount):\(model.demoLastInput)")
-                    .font(.caption.monospaced())
-                    .accessibilityIdentifier("demoPadInputLog")
-                    .allowsHitTesting(false)
-            }
+        if DemoMode.isEnabled, model.remoteControlMode != .eyesFree,
+           UserDefaults.standard.bool(forKey: "demoInputLog") {
+            Text("\(model.demoInputCount):\(model.demoLastInput)")
+                .font(.caption.monospaced())
+                .accessibilityIdentifier("demoPadInputLog")
+                .allowsHitTesting(false)
         }
         #endif
     }
 
-    private func standardMode(compactHeight: Bool, tabletop: Bool, book: Bool, wide: Bool) -> some View {
+    private func standardMode(compactHeight: Bool, tabletop: Bool, book: Bool, wide: Bool, tablet: Bool) -> some View {
         RemoteModeLayout { navRow } controls: {
-            if tabletop && mode == .keyboard && model.current != nil {
+            if tablet && mode == .keyboard {
+                tabletKeyboardPad
+            } else if tabletop && mode == .keyboard && model.current != nil {
                 tabletopKeyboard
             } else if wide && mode == .dpad {
                 wideDirectionalControls
@@ -243,9 +333,19 @@ struct RemoteScreen: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
             } else {
-                standardControls(book: book, wide: wide)
+                standardControls(book: book, wide: wide, tablet: tablet)
             }
         }
+    }
+
+    private var tabletKeyboardPad: some View {
+        ScrollView {
+            KeyboardPadView()
+                .frame(height: 460)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var tabletopKeyboard: some View {
@@ -275,7 +375,7 @@ struct RemoteScreen: View {
         }
     }
 
-    private func standardControls(book: Bool, wide: Bool) -> some View {
+    private func standardControls(book: Bool, wide: Bool, tablet: Bool) -> some View {
         GeometryReader { geo in
             let spacing: CGFloat = geo.size.height < 620 ? 10 : 18
             let fixed: CGFloat = 192 + spacing * 2 + 28
@@ -290,8 +390,8 @@ struct RemoteScreen: View {
                     if mode != .keyboard { controls(book: book) }
                 }
                 .padding(.bottom, 20)
-                .frame(maxWidth: wide ? geo.size.width * 0.88 : 440)
-                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                .frame(maxWidth: wide ? geo.size.width * 0.88 : tablet ? 500 : 440)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: tablet ? .top : .center)
             }
             .scrollBounceBehavior(.basedOnSize)
         }

@@ -9,13 +9,13 @@ struct CursorScreen: View {
 
     var compactHeight = false
     var wide = false
-    var tabletop = false
+    var surfaceOnly = false
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
-                       tabletop: tabletop,
+                       surfaceOnly: surfaceOnly,
                        mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                        modes: model.availableRemoteModes) { command, request in
             guard page == 0 else { return false }
@@ -46,14 +46,14 @@ private struct CursorControls: View {
     let sessionID: String?
     let compactHeight: Bool
     let wide: Bool
-    let tabletop: Bool
+    let surfaceOnly: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
     private var inputEnabled: Bool { enabled && scenePhase == .active && !showingCursorSettings }
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
-         wide: Bool = false, tabletop: Bool = false,
+         wide: Bool = false, surfaceOnly: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
@@ -61,7 +61,7 @@ private struct CursorControls: View {
         self.sessionID = sessionID
         self.compactHeight = compactHeight
         self.wide = wide
-        self.tabletop = tabletop
+        self.surfaceOnly = surfaceOnly
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -74,10 +74,10 @@ private struct CursorControls: View {
             HStack(spacing: 8) {
                 RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                     back: { press(.back) }, home: { press(.home) })
-                if tabletop { cursorSettingsButton }
+                if surfaceOnly { cursorSettingsButton }
             }
         } controls: {
-            if tabletop {
+            if surfaceOnly {
                 controlSurface
             } else if compactHeight {
                 HStack(spacing: 16) {
@@ -114,7 +114,7 @@ private struct CursorControls: View {
             NavigationStack {
                 Form {
                     Section { preferences } footer: {
-                        if tabletop { Text(scrollHint) }
+                        if surfaceOnly { Text(scrollHint) }
                     }
                 }
                 .formStyle(.grouped)
@@ -240,7 +240,7 @@ private struct CursorControls: View {
             RoundedRectangle(cornerRadius: 30).strokeBorder(Theme.accent.opacity(0.2))
             VStack(spacing: 12) {
                 Image(systemName: "hand.draw").font(.system(size: 48, weight: .light))
-                if tabletop {
+                if surfaceOnly {
                     Text(enabled && !sender.unavailable ? "Drag to move · Tap to click" : status)
                         .font(.subheadline)
                         .foregroundStyle(sender.unavailable ? Theme.power : Theme.secondary)
