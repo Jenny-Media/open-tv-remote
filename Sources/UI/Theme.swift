@@ -125,6 +125,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var holdAction: (() -> Void)? = nil
     var holdName = "Hold"
     var repeatAction: ((RemoteInputRequest) async -> Void)? = nil
+    var repeatRequiresCurrentConnection = true
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
@@ -241,8 +242,12 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
 
     private func startRepeating(_ repeatAction: @escaping (RemoteInputRequest) async -> Void) {
         let deadline = ContinuousClock.now + .seconds(8)
-        let request = RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
-                                         deadline: deadline, isCurrent: remoteRepeatIsCurrent)
+        let isCurrent = remoteRepeatIsCurrent
+        let requiresCurrentConnection = repeatRequiresCurrentConnection
+        let request = RemoteInputRequest(isRepeat: true, feedback: .soft,
+                                         requiresCurrentConnection: requiresCurrentConnection,
+                                         deadline: deadline,
+                                         isCurrent: { isCurrent(requiresCurrentConnection) })
         var feedback = RepeatFeedbackCadence()
         request.onDispatch = {
             if feedback.consume(at: .now) { Haptics.repeatTick() }
@@ -385,7 +390,7 @@ private struct AdaptiveKeyboardLayoutKey: EnvironmentKey {
 }
 
 private struct RemoteRepeatIsCurrentKey: EnvironmentKey {
-    static let defaultValue: () -> Bool = { true }
+    static let defaultValue: (Bool) -> Bool = { _ in true }
 }
 
 extension EnvironmentValues {
@@ -394,7 +399,7 @@ extension EnvironmentValues {
         set { self[AdaptiveKeyboardLayoutKey.self] = newValue }
     }
 
-    var remoteRepeatIsCurrent: () -> Bool {
+    var remoteRepeatIsCurrent: (Bool) -> Bool {
         get { self[RemoteRepeatIsCurrentKey.self] }
         set { self[RemoteRepeatIsCurrentKey.self] = newValue }
     }

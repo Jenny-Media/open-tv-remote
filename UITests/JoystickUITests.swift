@@ -209,6 +209,39 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(padLog.label, "2:Delete")
     }
 
+    func testPausedBufferedKeyboardCanHoldDeleteUntilTheLocalTextIsGone() {
+        launch(openMode: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoConnectionPaused", "YES", "-demoBufferedKeyboard", "YES",
+        ])
+        let delete = app.buttons.matching(identifier: "Delete").firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+        for key in ["q", "w", "e"] { app.buttons[key].tap() }
+        XCTAssertTrue(delete.isEnabled)
+
+        delete.press(forDuration: 1)
+        XCTAssertFalse(delete.isEnabled)
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "3:e")
+    }
+
+    func testTVDeleteIsDisabledOnThePadsAndKeyboardSheetWhilePaused() {
+        let paused = ["-demoConnectionPaused", "YES"]
+        launch(openMode: false, additionalArguments: paused + ["-padMode", "keyboard"])
+        let delete = app.buttons.matching(identifier: "Delete").firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+
+        selectMode("keypad", title: "Number pad")
+        XCTAssertTrue(app.buttons["0"].waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+
+        app.terminate()
+        launch(openMode: false, additionalArguments: paused + ["-demoSheet", "keyboard"])
+        let sheetDelete = app.buttons["Delete on TV"]
+        XCTAssertTrue(sheetDelete.waitForExistence(timeout: 5))
+        XCTAssertFalse(sheetDelete.isEnabled)
+    }
+
     func testBookPlaybackStopsWhenTheTouchLeavesTheButton() throws {
         try requireDuoPosture("book")
         launch()

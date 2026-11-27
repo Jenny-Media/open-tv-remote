@@ -149,14 +149,14 @@ struct KeyboardSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 48)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
-                KeyCap(enabled: model.supports(.backspace), accessibilityLabel: "Delete on TV",
+                KeyCap(enabled: model.canSendTVDelete, accessibilityLabel: "Delete on TV",
                        repeatAction: model.repeatAction(for: .backspace)) {
                     model.press(.backspace)
                 } label: {
                     Image(systemName: "delete.left").font(.system(size: 17, weight: .semibold))
                 }
                 .frame(width: 52, height: 48)
-                .environment(\.remoteRepeatIsCurrent, {
+                .environment(\.remoteRepeatIsCurrent, { _ in
                     model.showingKeyboard && model.currentID == deviceID && !model.isConnectionPaused
                 })
                 Button {

@@ -233,7 +233,9 @@ struct KeyboardPadView: View {
             }
             await model.repeatTypeDelete(request: request)
         }
-        return KeyCap(shape: keyShape, accessibilityLabel: "Delete", repeatAction: repeatDelete) {
+        return KeyCap(shape: keyShape, enabled: model.typesLive ? model.canSendTVDelete : !model.typed.isEmpty,
+                      accessibilityLabel: "Delete", repeatAction: repeatDelete,
+                      repeatRequiresCurrentConnection: model.typesLive) {
             model.typeDelete()
         } label: {
             Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
@@ -304,7 +306,7 @@ struct KeypadView: View {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .semibold))
                 }
                 digit(0)
-                KeyCap(enabled: model.supports(.backspace), accessibilityLabel: "Delete",
+                KeyCap(enabled: model.canSendTVDelete, accessibilityLabel: "Delete",
                        repeatAction: model.repeatAction(for: .backspace)) {
                     model.press(.backspace)
                 } label: {

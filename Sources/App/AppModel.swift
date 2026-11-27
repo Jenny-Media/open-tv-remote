@@ -113,6 +113,9 @@ final class AppModel: TVDriverDelegate {
             case "settings": showingSettings = true
             default: break
             }
+            #if os(iOS)
+            if UserDefaults.standard.bool(forKey: "demoConnectionPaused") { disconnectRemoteSession() }
+            #endif
             return
         }
         #endif
@@ -469,6 +472,7 @@ final class AppModel: TVDriverDelegate {
     @ObservationIgnored private var pendingTypeDelete: RemoteInputRequest?
 
     var typesLive: Bool { driver?.typesLive ?? true }
+    var canSendTVDelete: Bool { !isConnectionPaused && supports(.backspace) }
 
     /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
     func type(_ text: String) {
@@ -481,13 +485,14 @@ final class AppModel: TVDriverDelegate {
     }
 
     func typeDelete() {
+        guard !typesLive || canSendTVDelete else { return }
         cancelPendingTypeDelete()
         if !typed.isEmpty { typed.removeLast() }
         if typesLive { press(.backspace) }
     }
 
     func repeatTypeDelete(request: RemoteInputRequest) async {
-        guard remoteCommandsAvailable, !isConnectionPaused, request.canDispatch else {
+        guard remoteCommandsAvailable, request.canDispatch else {
             request.cancel()
             return
         }
@@ -497,7 +502,7 @@ final class AppModel: TVDriverDelegate {
             request.onDispatch?()
             return
         }
-        guard supports(.backspace) else {
+        guard canSendTVDelete else {
             request.cancel()
             return
         }

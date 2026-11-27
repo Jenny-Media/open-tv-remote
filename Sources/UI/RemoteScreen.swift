@@ -27,9 +27,9 @@ struct RemoteScreen: View {
             remote(showHeader: true, tabletop: false)
             #endif
         }
-        .environment(\.remoteRepeatIsCurrent, {
+        .environment(\.remoteRepeatIsCurrent, { requiresCurrentConnection in
             model.remoteControlMode == controlMode && model.currentID == deviceID && pageIsActive() &&
-                model.remoteCommandsAvailable && !model.isConnectionPaused
+                model.remoteCommandsAvailable && (!requiresCurrentConnection || !model.isConnectionPaused)
         })
         .background(Theme.background.ignoresSafeArea())
         .focusable()
