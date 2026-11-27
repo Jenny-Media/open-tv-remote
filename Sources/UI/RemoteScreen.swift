@@ -212,7 +212,7 @@ struct RemoteScreen: View {
         .padding(.top, 8)
         .frame(maxWidth: wide || compactHeight ? .infinity : 600)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .environment(\.cancellableRemoteRepeats, book || tabletop || wide)
+        .environment(\.adaptiveKeyboardLayout, book || tabletop || wide)
         #if DEBUG
         .overlay(alignment: .bottomTrailing) {
             if DemoMode.isEnabled, model.remoteControlMode != .eyesFree,
@@ -458,7 +458,6 @@ struct DuoQuickControls: View {
                 }
             }
             .id(device.id)
-            .environment(\.cancellableRemoteRepeats, true)
         }
     }
 
@@ -651,7 +650,6 @@ private struct StatusBanner: View {
 
 private struct Rocker: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     let label: String
     let up: RemoteKey
     let down: RemoteKey
@@ -661,15 +659,15 @@ private struct Rocker: View {
     var body: some View {
         VStack(spacing: 2) {
             KeyCap(shape: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 6, bottomTrailingRadius: 6, topTrailingRadius: 22, style: .continuous),
-                   repeats: true, enabled: model.supports(up), accessibilityLabel: up.accessibilityName,
-                   repeatAction: model.repeatAction(for: up, enabled: cancellableRepeats)) {
+                   enabled: model.supports(up), accessibilityLabel: up.accessibilityName,
+                   repeatAction: model.repeatAction(for: up)) {
                 model.press(up)
             } label: {
                 Image(systemName: upSymbol).font(.system(size: 19, weight: .bold)).padding(.bottom, 10)
             }
             KeyCap(shape: UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 22, bottomTrailingRadius: 22, topTrailingRadius: 6, style: .continuous),
-                   repeats: true, enabled: model.supports(down), accessibilityLabel: down.accessibilityName,
-                   repeatAction: model.repeatAction(for: down, enabled: cancellableRepeats)) {
+                   enabled: model.supports(down), accessibilityLabel: down.accessibilityName,
+                   repeatAction: model.repeatAction(for: down)) {
                 model.press(down)
             } label: {
                 Image(systemName: downSymbol).font(.system(size: 19, weight: .bold)).padding(.top, 10)

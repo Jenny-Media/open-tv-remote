@@ -271,15 +271,14 @@ final class JellyfinStore {
         attempt?.cancel()
         attempt = Task {
             await refreshSessions()
-            guard !Task.isCancelled else { return }
             let app = tv.flatMap { Self.launchApp(for: $0.brand) }
             if target(for: tv)?.nowPlaying == nil {
                 guard let tv, let app else {
-                    finishPlayback(.failed("Open Jellyfin on your TV, then try again."))
+                    playStatus = .failed("Open Jellyfin on your TV, then try again.")
                     return
                 }
                 guard launch(app) else {
-                    finishPlayback(.failed("\(tv.name) isn't paired with this device. Pair it from the remote, or open Jellyfin on the TV yourself."))
+                    playStatus = .failed("\(tv.name) isn't paired with this device. Pair it from the remote, or open Jellyfin on the TV yourself.")
                     return
                 }
                 playStatus = .openingApp
@@ -291,11 +290,10 @@ final class JellyfinStore {
             var lastError: Error?
             while clock.now < deadline, !Task.isCancelled {
                 await refreshSessions()
-                guard !Task.isCancelled else { return }
                 if let session = target(for: tv) {
                     if lastSent != nil, let item = session.nowPlaying, playing(item) {
                         choose(session, for: tv)
-                        finishPlayback(.sent(name))
+                        playStatus = .sent(name)
                         try? await Task.sleep(for: .seconds(5))
                         await refreshHome()
                         return
@@ -315,21 +313,12 @@ final class JellyfinStore {
             }
             guard !Task.isCancelled else { return }
             if let lastError {
-                finishPlayback(.failed(lastError.localizedDescription))
+                playStatus = .failed(lastError.localizedDescription)
             } else if lastSent == nil {
-                finishPlayback(.failed("Jellyfin didn't show up on the TV. Make sure it's installed and signed in."))
+                playStatus = .failed("Jellyfin didn't show up on the TV. Make sure it's installed and signed in.")
             } else {
-                finishPlayback(.failed("Jellyfin on the TV didn't start \(name). Open Jellyfin on the TV, then try again."))
+                playStatus = .failed("Jellyfin on the TV didn't start \(name). Open Jellyfin on the TV, then try again.")
             }
-        }
-    }
-
-    private func finishPlayback(_ status: PlayStatus) {
-        playStatus = status
-        switch status {
-        case .sent: Haptics.outcome(.success)
-        case .failed: Haptics.outcome(.error)
-        default: break
         }
     }
 

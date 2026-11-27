@@ -19,7 +19,12 @@ struct JoystickScreen: View {
                 case .select: Haptics.tick()
                 default: Haptics.tap()
                 }
-            case .soft: request.onDispatch = { Haptics.repeatTick() }
+            case .soft:
+                let recordDispatch = request.onDispatch
+                request.onDispatch = {
+                    recordDispatch?()
+                    Haptics.repeatTick()
+                }
             case .none: break
             }
             await model.pressInteractively(key, request: request)

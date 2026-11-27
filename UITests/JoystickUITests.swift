@@ -187,6 +187,28 @@ final class JoystickUITests: XCTestCase {
         }
     }
 
+    func testHandheldDirectionalHoldWaitsForThePreviousRepeat() {
+        launch(openMode: false, additionalArguments: ["-padMode", "standard", "-demoInteractiveDelayMS", "900"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        let target = ok.coordinate(withNormalizedOffset: CGVector(dx: 1.4, dy: 0.5))
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Right") {
+            target.press(forDuration: 1)
+        }
+    }
+
+    func testKeyboardSheetDeleteCanRepeatWhileTheSheetIsOpen() {
+        launch(openMode: false, additionalArguments: ["-demoSheet", "keyboard", "-demoInteractiveDelayMS", "900"])
+        let delete = app.buttons["Delete on TV"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.press(forDuration: 1)
+        app.buttons["Done"].tap()
+
+        let padLog = app.staticTexts["demoPadInputLog"]
+        XCTAssertTrue(padLog.waitForExistence(timeout: 5))
+        XCTAssertEqual(padLog.label, "2:Delete")
+    }
+
     func testBookPlaybackStopsWhenTheTouchLeavesTheButton() throws {
         try requireDuoPosture("book")
         launch()

@@ -132,6 +132,7 @@ struct KeyboardSheet: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        let deviceID = model.currentID
         VStack(spacing: 16) {
             HStack {
                 Text("Type on your TV").font(.system(size: 18, weight: .bold, design: .rounded))
@@ -148,12 +149,16 @@ struct KeyboardSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 48)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
-                KeyCap(repeats: true, enabled: model.supports(.backspace), accessibilityLabel: "Delete on TV") {
+                KeyCap(enabled: model.supports(.backspace), accessibilityLabel: "Delete on TV",
+                       repeatAction: model.repeatAction(for: .backspace)) {
                     model.press(.backspace)
                 } label: {
                     Image(systemName: "delete.left").font(.system(size: 17, weight: .semibold))
                 }
                 .frame(width: 52, height: 48)
+                .environment(\.remoteRepeatIsCurrent, {
+                    model.showingKeyboard && model.currentID == deviceID && !model.isConnectionPaused
+                })
                 Button {
                     send(playsFeedback: true)
                 } label: {

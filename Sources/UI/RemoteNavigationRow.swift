@@ -41,9 +41,7 @@ private struct RemoteModePicker: View {
                 HStack(spacing: 0) {
                     ForEach(modes) { mode in
                         Button {
-                            guard selection != mode else { return }
-                            selection = mode
-                            Haptics.selection()
+                            select(mode)
                         } label: {
                             Image(systemName: mode.symbol)
                                 .font(.system(size: 17, weight: .semibold))
@@ -61,7 +59,7 @@ private struct RemoteModePicker: View {
                 .padding(5)
             } else {
                 Menu {
-                    Picker("Control mode", selection: $selection) {
+                    Picker("Control mode", selection: Binding(get: { selection }, set: select)) {
                         ForEach(modes) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
                     }
                 } label: {
@@ -80,6 +78,12 @@ private struct RemoteModePicker: View {
         }
         .background(Capsule().fill(Theme.well))
         .overlay(Capsule().strokeBorder(.white.opacity(0.05), lineWidth: 1))
+    }
+
+    private func select(_ mode: RemoteControlMode) {
+        guard selection != mode else { return }
+        selection = mode
+        Haptics.selection()
     }
 }
 

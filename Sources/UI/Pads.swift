@@ -52,7 +52,6 @@ struct Wedge: InsettableShape {
 
 struct DPadView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
 
     private let directions: [(key: RemoteKey, angle: Double, symbol: String)] = [
         (.right, 0, "chevron.right"),
@@ -73,9 +72,8 @@ struct DPadView: View {
                     .padding(-6)
 
                 ForEach(directions, id: \.angle) { d in
-                    KeyCap(shape: Wedge(direction: .degrees(d.angle)), repeats: true,
-                           accessibilityLabel: d.key.accessibilityName,
-                           repeatAction: model.repeatAction(for: d.key, enabled: cancellableRepeats)) {
+                    KeyCap(shape: Wedge(direction: .degrees(d.angle)), accessibilityLabel: d.key.accessibilityName,
+                           repeatAction: model.repeatAction(for: d.key)) {
                         model.press(d.key)
                     } label: {
                         Image(systemName: d.symbol)
@@ -102,7 +100,7 @@ struct DPadView: View {
 // MARK: - Keyboard
 
 struct KeyboardPadView: View {
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
+    @Environment(\.adaptiveKeyboardLayout) private var adaptiveKeyboardLayout
     @Environment(AppModel.self) private var model
     @State private var shifted = false
     @State private var symbols = false
@@ -125,7 +123,7 @@ struct KeyboardPadView: View {
             GeometryReader { geo in
                 let rows = symbols ? Self.others : Self.letters
                 let keyWidth = (geo.size.width - gap * 9) / 10
-                if cancellableRepeats && keyWidth < 24 {
+                if adaptiveKeyboardLayout && keyWidth < 24 {
                     narrowKeys(rows)
                 } else {
                     fullKeys(rows, width: keyWidth)
@@ -228,14 +226,14 @@ struct KeyboardPadView: View {
 
     private var deleteButton: some View {
         let deviceID = model.currentID
-        let repeatDelete: ((RemoteInputRequest) async -> Void)? = cancellableRepeats ? { request in
+        let repeatDelete: (RemoteInputRequest) async -> Void = { request in
             guard request.canDispatch, model.currentID == deviceID else {
                 request.cancel()
                 return
             }
             await model.repeatTypeDelete(request: request)
-        } : nil
-        return KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete", repeatAction: repeatDelete) {
+        }
+        return KeyCap(shape: keyShape, accessibilityLabel: "Delete", repeatAction: repeatDelete) {
             model.typeDelete()
         } label: {
             Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
@@ -291,7 +289,6 @@ struct KeyboardPadView: View {
 // MARK: - Keypad
 
 struct KeypadView: View {
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -307,8 +304,8 @@ struct KeypadView: View {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .semibold))
                 }
                 digit(0)
-                KeyCap(repeats: true, enabled: model.supports(.backspace), accessibilityLabel: "Delete",
-                       repeatAction: model.repeatAction(for: .backspace, enabled: cancellableRepeats)) {
+                KeyCap(enabled: model.supports(.backspace), accessibilityLabel: "Delete",
+                       repeatAction: model.repeatAction(for: .backspace)) {
                     model.press(.backspace)
                 } label: {
                     Image(systemName: "delete.left").font(.system(size: 18, weight: .semibold))

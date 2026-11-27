@@ -118,7 +118,6 @@ struct KeySurface<S: InsettableShape>: View {
 /// A remote button: fires on touch-down (like a physical remote) and can auto-repeat while held.
 struct KeyCap<Label: View, S: InsettableShape>: View {
     var shape: S
-    var repeats = false
     var tint: Color? = Theme.accent
     var enabled = true
     var accessibilityLabel: String
@@ -207,7 +206,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                     return
                 }
                 fire()
-                if repeats { startRepeating() }
+                if let repeatAction { startRepeating(repeatAction) }
             }
             .onChange(of: scenePhase) { _, phase in
                 if repeatAction != nil && phase != .active { stopRepeating() }
@@ -228,9 +227,9 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
     }
 
-    private func fire(playsFeedback: Bool = true) {
+    private func fire() {
         guard enabled, isEnabled else { return }
-        if playsFeedback { Haptics.tap() }
+        Haptics.tap()
         action()
     }
 
@@ -240,15 +239,12 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
         holdAction()
     }
 
-    private func startRepeating() {
-        let isCurrent = remoteRepeatIsCurrent
+    private func startRepeating(_ repeatAction: @escaping (RemoteInputRequest) async -> Void) {
         let deadline = ContinuousClock.now + .seconds(8)
-        let request = repeatAction.map { _ in
-            RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
-                               deadline: deadline, isCurrent: isCurrent)
-        }
+        let request = RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
+                                         deadline: deadline, isCurrent: remoteRepeatIsCurrent)
         var feedback = RepeatFeedbackCadence()
-        request?.onDispatch = {
+        request.onDispatch = {
             if feedback.consume(at: .now) { Haptics.repeatTick() }
         }
         repeatRequest = request
@@ -256,13 +252,8 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             try? await Task.sleep(for: .milliseconds(420))
             // Belt and braces: never auto-repeat for more than ~8 seconds.
             for _ in 0..<70 {
-                guard !Task.isCancelled, request?.canDispatch != false,
-                      ContinuousClock.now < deadline else { return }
-                if let repeatAction, let request {
-                    await repeatAction(request)
-                } else {
-                    fire(playsFeedback: false)
-                }
+                guard request.canDispatch else { return }
+                await repeatAction(request)
                 try? await Task.sleep(for: .milliseconds(110))
             }
         }
@@ -363,10 +354,10 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
 #endif
 
 extension KeyCap where S == RoundedRectangle {
-    init(repeats: Bool = false, tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,
+    init(tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,
          repeatAction: ((RemoteInputRequest) async -> Void)? = nil,
          action: @escaping () -> Void, @ViewBuilder label: @escaping () -> Label) {
-        self.init(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous), repeats: repeats, tint: tint,
+        self.init(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous), tint: tint,
                   enabled: enabled, accessibilityLabel: accessibilityLabel, repeatAction: repeatAction,
                   action: action, label: label)
     }
@@ -375,14 +366,13 @@ extension KeyCap where S == RoundedRectangle {
 /// Convenience: a key bound straight to a RemoteKey.
 struct RemoteKeyButton: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     let key: RemoteKey
     let symbol: String
     var repeats = false
 
     var body: some View {
-        KeyCap(repeats: repeats, enabled: model.supports(key), accessibilityLabel: key.accessibilityName,
-               repeatAction: model.repeatAction(for: key, enabled: repeats && cancellableRepeats)) {
+        KeyCap(enabled: model.supports(key), accessibilityLabel: key.accessibilityName,
+               repeatAction: repeats ? model.repeatAction(for: key) : nil) {
             model.press(key)
         } label: {
             Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
@@ -390,7 +380,7 @@ struct RemoteKeyButton: View {
     }
 }
 
-private struct CancellableRemoteRepeatsKey: EnvironmentKey {
+private struct AdaptiveKeyboardLayoutKey: EnvironmentKey {
     static let defaultValue = false
 }
 
@@ -399,9 +389,9 @@ private struct RemoteRepeatIsCurrentKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var cancellableRemoteRepeats: Bool {
-        get { self[CancellableRemoteRepeatsKey.self] }
-        set { self[CancellableRemoteRepeatsKey.self] = newValue }
+    var adaptiveKeyboardLayout: Bool {
+        get { self[AdaptiveKeyboardLayoutKey.self] }
+        set { self[AdaptiveKeyboardLayoutKey.self] = newValue }
     }
 
     var remoteRepeatIsCurrent: () -> Bool {
@@ -411,16 +401,15 @@ extension EnvironmentValues {
 }
 
 extension AppModel {
-    func repeatAction(for key: RemoteKey, enabled: Bool) -> ((RemoteInputRequest) async -> Void)? {
-        guard enabled else { return nil }
+    func repeatAction(for key: RemoteKey) -> (RemoteInputRequest) async -> Void {
         let deviceID = currentID
         return { request in
-            guard request.canDispatch, self.currentID == deviceID, self.remoteCommandsAvailable,
+            guard request.canDispatch, self.currentID == deviceID,
                   !self.isConnectionPaused, self.supports(key) else {
                 request.cancel()
                 return
             }
-            guard self.remoteInputAvailable else { return }
+            guard self.state.isConnected else { return }
             await self.pressInteractively(key, request: request)
         }
     }

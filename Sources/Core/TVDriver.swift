@@ -36,7 +36,7 @@ struct PairingFeedback {
         case .connected:
             cancel()
             return .success
-        case .failed:
+        case .failed, .unpaired:
             cancel()
             return .error
         case .pairing(.enterCode(_, .some)):

@@ -29,6 +29,17 @@ struct PairingFeedbackTests {
         #expect(feedback.receive(.failed("Denied")) == nil)
         #expect(feedback.receive(.connected) == nil)
     }
+
+    @Test func returningToUnpairedEndsAnExplicitAttempt() {
+        var feedback = PairingFeedback()
+        #expect(feedback.receive(.unpaired) == nil)
+        feedback.start()
+        #expect(feedback.receive(.pairing(.verifying)) == nil)
+        #expect(feedback.receive(.connecting) == nil)
+        #expect(feedback.receive(.unpaired) == .error)
+        #expect(feedback.receive(.unpaired) == nil)
+        #expect(feedback.receive(.connected) == nil)
+    }
 }
 
 @Suite("Remote input availability")
