@@ -31,7 +31,7 @@ enum TVBrand: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .androidTV: "Choose Pair, then enter the code shown on your TV."
         case .roku: "Connects directly over your local network."
-        case .samsung: "Choose Pair, then use your TV remote to select Allow for \(AppBranding.name)."
+        case .samsung: "Choose Pair, then select Allow on your TV."
         case .lg: "Choose Pair, then use your TV remote to accept the connection on the TV."
         }
     }
