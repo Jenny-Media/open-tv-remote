@@ -275,8 +275,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(play.isHittable)
         XCTAssertTrue(volume.isHittable)
         XCTAssertGreaterThan(stick.frame.midY, tv.frame.midY)
-        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
-        XCTAssertGreaterThan(volume.frame.midY, tv.frame.midY)
+        XCTAssertLessThan(play.frame.maxY, stick.frame.minY)
+        XCTAssertLessThan(volume.frame.maxY, stick.frame.minY)
+        XCTAssertGreaterThan(stick.frame.width, app.windows.firstMatch.frame.width * 0.85)
         XCTAssertFalse(app.navigationBars["Apps"].exists)
         play.tap()
         XCTAssertEqual(log.label, "1:Play or pause")
@@ -285,8 +286,64 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5))
         XCTAssertTrue(play.isHittable)
         XCTAssertTrue(volume.isHittable)
-        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        XCTAssertLessThan(play.frame.maxY, app.buttons["q"].frame.minY)
         play.tap()
+    }
+
+    func testTabletopLGCursorLeavesRoomForTheTouchpad() throws {
+        try requireDuoPosture("tabletop")
+        launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+        let touchpad = app.descendants(matching: .any)["lgCursorTouchpad"].firstMatch
+        let settings = app.buttons["lgCursorSettings"]
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(touchpad.waitForExistence(timeout: 5))
+        XCTAssertTrue(touchpad.isHittable)
+        XCTAssertGreaterThan(touchpad.frame.width, app.windows.firstMatch.frame.width * 0.72)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertLessThan(volume.frame.maxY, touchpad.frame.minY)
+        XCTAssertEqual(app.buttons.matching(identifier: "Back").count, 1)
+        XCTAssertTrue(settings.isHittable)
+        settings.tap()
+        XCTAssertTrue(app.navigationBars["Cursor Settings"].waitForExistence(timeout: 5))
+    }
+
+    func testFoldedVolumeControlsInPortraitAndLandscape() throws {
+        try requireDuoPosture("closed")
+        let device = XCUIDevice.shared
+        let originalOrientation = device.orientation
+        defer {
+            if originalOrientation.isValidInterfaceOrientation { device.orientation = originalOrientation }
+        }
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeRight] {
+            device.orientation = orientation
+            try assertVolumeControlsInGestureModes()
+        }
+    }
+
+    func testFlatLandscapeVolumeControlsInGestureModes() throws {
+        try requireDuoPosture("flat-landscape")
+        try assertVolumeControlsInGestureModes()
+    }
+
+    private func assertVolumeControlsInGestureModes() throws {
+        XCTAssertNotNil(UIImage(systemName: "speaker.plus"))
+        XCTAssertNotNil(UIImage(systemName: "speaker.minus"))
+        launch()
+        let increase = app.buttons["Volume up"]
+        let decrease = app.buttons["Volume down"]
+        XCTAssertTrue(increase.isHittable)
+        XCTAssertTrue(decrease.isHittable)
+        increase.tap()
+        XCTAssertEqual(log.label, "1:Volume up")
+        decrease.tap()
+        XCTAssertEqual(log.label, "2:Volume down")
+        app.terminate()
+
+        launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+        XCTAssertTrue(app.descendants(matching: .any)["lgCursorTouchpad"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Volume up"].isHittable)
+        XCTAssertTrue(app.buttons["Volume down"].isHittable)
+        app.terminate()
     }
 
     func testFlatLandscapeEnlargesTheDirectionalPad() throws {

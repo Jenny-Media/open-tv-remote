@@ -270,11 +270,11 @@ private struct DuoRemoteToolbar: ViewModifier {
         if showsVolume && model.current != nil && model.remoteControlMode.isGestureMode {
             ToolbarItemGroup(placement: .bottomBar) {
                 if model.supports(.volumeUp) {
-                    Button("Volume up", systemImage: "plus") { model.press(.volumeUp) }
+                    Button("Volume up", systemImage: "speaker.plus") { model.press(.volumeUp) }
                         .buttonRepeatBehavior(.enabled)
                 }
                 if model.supports(.volumeDown) {
-                    Button("Volume down", systemImage: "minus") { model.press(.volumeDown) }
+                    Button("Volume down", systemImage: "speaker.minus") { model.press(.volumeDown) }
                         .buttonRepeatBehavior(.enabled)
                 }
             }

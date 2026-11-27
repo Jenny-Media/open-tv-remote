@@ -5,12 +5,10 @@ struct JoystickScreen: View {
     @AppStorage("page") private var page = 0
 
     var compactHeight = false
-    var showsTabletopControls = false
 
     var body: some View {
         JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && page == 0,
                          sessionID: model.currentID, inputLog: inputLog, compactHeight: compactHeight,
-                         showsTabletopControls: showsTabletopControls && model.current != nil,
                          mode: Binding(get: { model.remoteControlMode }, set: {
                              Haptics.tap(); model.selectRemoteMode($0)
                          }), modes: model.availableRemoteModes) { key, request in
@@ -46,7 +44,6 @@ private struct JoystickControls: View {
     let sessionID: String?
     let inputLog: String?
     let compactHeight: Bool
-    let showsTabletopControls: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
     @State private var input = JoystickGesture()
@@ -55,7 +52,6 @@ private struct JoystickControls: View {
     @State private var ignoreUntilLift = false
 
     init(tvName: String, enabled: Bool, sessionID: String?, inputLog: String? = nil, compactHeight: Bool = false,
-         showsTabletopControls: Bool = false,
          mode: Binding<RemoteControlMode> = .constant(.eyesFree), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (RemoteKey, RemoteInputRequest) async -> Void) {
         self.tvName = tvName
@@ -63,7 +59,6 @@ private struct JoystickControls: View {
         self.sessionID = sessionID
         self.inputLog = inputLog
         self.compactHeight = compactHeight
-        self.showsTabletopControls = showsTabletopControls
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: JoystickSender(send: send))
@@ -74,16 +69,7 @@ private struct JoystickControls: View {
             RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                 back: { press(.back) }, home: { press(.home) })
         } controls: {
-            HStack(alignment: .top, spacing: 16) {
-                joystickSurface
-                if showsTabletopControls {
-                    ScrollView {
-                        DuoQuickControls().padding(.vertical, 2)
-                    }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .frame(maxWidth: 210)
-                }
-            }
+            joystickSurface
         }
         .foregroundStyle(Theme.label)
         .padding(.bottom, 12)
