@@ -1,6 +1,6 @@
 # Just a TV Remote
 
-An independent beta fork of [Open TV Remote](https://github.com/iamnbutler/open-tv-remote) by Nathan Butler, with an eyes-free joystick, Dynamic Island shortcuts and LG webOS cursor controls. The iOS TestFlight app uses its own app identity and retains the original red power-button icon. No ads, analytics or tracking.
+An independent fork of [Open TV Remote](https://github.com/iamnbutler/open-tv-remote) by Nathan Butler, with an eyes-free joystick, Dynamic Island shortcuts and LG webOS cursor controls. Just a TV Remote uses its own app identity and retains the original red power-button icon. No ads, analytics or tracking.
 
 Works with Google TV and Android TV (Sony, TCL, Hisense, Philips, Chromecast, Shield…), Roku, Samsung (Tizen) and LG (webOS).
 

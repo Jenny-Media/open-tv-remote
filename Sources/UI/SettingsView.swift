@@ -19,7 +19,7 @@ struct SettingsView: View {
     private var privacyPolicy: String {
         guard let url = Bundle.main.url(forResource: "RemoteLab-Privacy", withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8) else {
-            return "The privacy policy is unavailable. Please contact the developer through TestFlight feedback."
+            return "The privacy policy is unavailable. See the Just a TV Remote source repository for the current policy."
         }
         return text
     }
