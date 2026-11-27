@@ -58,6 +58,194 @@ final class JoystickUITests: XCTestCase {
         XCTAssertFalse(apps.exists)
     }
 
+    func testBookControlsSwapSidesAndRememberTheMainRemote() throws {
+        try requireDuoPosture("book")
+        launch()
+        let swap = app.buttons["bookSwapSides"]
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+
+        let remoteStartedOnLeft = stick.frame.midX < swap.frame.midX
+        swap.tap()
+        defer {
+            if swap.isHittable && (stick.frame.midX < swap.frame.midX) != remoteStartedOnLeft { swap.tap() }
+        }
+        XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(log.label, "0:None")
+        XCTAssertTrue(app.staticTexts["Volume"].isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
+        app.buttons["Volume up"].tap()
+        XCTAssertEqual(log.label, "1:Volume up")
+        XCTAssertFalse(app.navigationBars["Apps"].exists)
+        app.buttons["TV Apps"].tap()
+        XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 5))
+        app.navigationBars["Apps"].buttons["Done"].tap()
+
+        app.terminate()
+        launch()
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(log.label, "0:None")
+    }
+
+    func testBookPlaybackRepeatsWaitForThePreviousRequestAndStopOnRelease() throws {
+        try requireDuoPosture("book")
+        launch(additionalArguments: ["-demoInteractiveDelayMS", "900"])
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        forward.press(forDuration: 1.0)
+        XCTAssertEqual(log.label, "2:Fast forward")
+
+        let unexpectedRepeat = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.count > 2
+        }, object: nil)
+        unexpectedRepeat.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [unexpectedRepeat], timeout: 0.5), .completed)
+    }
+
+    func testBookDirectionalHoldUsesCancellableRepeats() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: ["-padMode", "standard", "-demoInteractiveDelayMS", "900"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        let target = ok.coordinate(withNormalizedOffset: CGVector(dx: 1.4, dy: 0.5))
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Right") {
+            target.press(forDuration: 1)
+        }
+    }
+
+    func testBookPlaybackStopsWhenTheTouchLeavesTheButton() throws {
+        try requireDuoPosture("book")
+        launch()
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        let center = forward.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let outside = forward.coordinate(withNormalizedOffset: CGVector(dx: -0.35, dy: 0.5))
+        center.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.7)
+        XCTAssertEqual(log.label, "1:Fast forward")
+    }
+
+    func testNarrowBookKeyboardActionsRemainReachableAfterSwappingSides() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: ["-padMode", "keyboard", "-demoKeyboardWidth", "164"])
+        let swap = app.buttons["bookSwapSides"]
+        let clear = app.buttons["Clear"]
+        let enter = app.buttons["Return"]
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        XCTAssertTrue(enter.waitForExistence(timeout: 5))
+        let originalSide = enter.frame.midX < swap.frame.midX
+        swap.tap()
+        defer {
+            if swap.isHittable && (enter.frame.midX < swap.frame.midX) != originalSide { swap.tap() }
+        }
+        XCTAssertEqual(enter.frame.midX < swap.frame.midX, !originalSide)
+        let delete = try XCTUnwrap(app.buttons.matching(identifier: "Delete").allElementsBoundByIndex.first {
+            abs($0.frame.midY - enter.frame.midY) < 2
+        })
+        for button in [clear, delete, enter] {
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertEqual(button.frame.midY, enter.frame.midY, accuracy: 2)
+        }
+        let keys = ["q", "w"]
+        for key in keys {
+            let button = app.buttons[key]
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            button.tap()
+        }
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "2:w")
+        clear.tap()
+        delete.tap()
+        enter.tap()
+    }
+
+    func testBookKeyboardDeleteUsesCancellableRepeats() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoKeyboardWidth", "164", "-demoInteractiveDelayMS", "900",
+        ])
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        for key in ["q", "w", "e"] { app.buttons[key].tap() }
+        let padLog = app.staticTexts["demoPadInputLog"]
+        XCTAssertEqual(padLog.label, "3:e")
+        assertDelayedHoldSendsOneRepeat(log: padLog, key: "Delete", expectedCount: 5) {
+            delete.press(forDuration: 1)
+        }
+        app.buttons["Clear"].tap()
+        XCTAssertEqual(padLog.label, "6:Delete")
+    }
+
+    func testTabletopKeypadMediaHoldUsesCancellableRepeats() throws {
+        try requireDuoPosture("tabletop")
+        launch(openMode: false, additionalArguments: ["-padMode", "keypad", "-demoInteractiveDelayMS", "900"])
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        XCTAssertTrue(forward.isHittable)
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Fast forward") {
+            forward.press(forDuration: 1)
+        }
+    }
+
+    private func assertDelayedHoldSendsOneRepeat(log: XCUIElement, key: String, expectedCount: Int = 2, hold: () -> Void) {
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        hold()
+        let expected = "\(expectedCount):\(key)"
+        XCTAssertEqual(log.label, expected)
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            log.label != expected
+        }, object: nil)
+        changed.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 0.5), .completed)
+    }
+
+    func testTabletopShowsTVStatusAboveTheRemoteAndPlayback() throws {
+        try requireDuoPosture("tabletop")
+        launch(additionalArguments: ["-demoForegroundAppPackage", "com.google.android.youtube.tv"])
+        let tv = app.buttons["tabletopTVSelection"]
+        XCTAssertTrue(tv.waitForExistence(timeout: 5))
+
+        XCTAssertTrue(tv.label.contains("Living Room TV"))
+        XCTAssertTrue(tv.label.contains("Connected"))
+        let reportedApp = app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch
+        XCTAssertTrue(reportedApp.isHittable)
+        XCTAssertEqual(reportedApp.label, "Last reported app, YouTube")
+        let play = app.buttons["Play or pause"]
+        let volume = app.buttons["Volume down"]
+        XCTAssertTrue(play.isHittable)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertGreaterThan(stick.frame.midY, tv.frame.midY)
+        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        XCTAssertGreaterThan(volume.frame.midY, tv.frame.midY)
+        XCTAssertFalse(app.navigationBars["Apps"].exists)
+        play.tap()
+        XCTAssertEqual(log.label, "1:Play or pause")
+
+        selectMode("keyboard", title: "Keyboard")
+        XCTAssertTrue(app.buttons["q"].waitForExistence(timeout: 5))
+        XCTAssertTrue(play.isHittable)
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertGreaterThan(play.frame.midY, tv.frame.midY)
+        play.tap()
+    }
+
+    func testFlatLandscapeEnlargesTheDirectionalPad() throws {
+        try requireDuoPosture("flat-landscape")
+        launch(openMode: false, additionalArguments: ["-padMode", "standard"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        // The old 340-point pad cap limited OK to 136 points.
+        XCTAssertGreaterThanOrEqual(ok.frame.width, 140)
+        XCTAssertTrue(ok.isHittable)
+    }
+
+    private func requireDuoPosture(_ posture: String) throws {
+        guard ProcessInfo.processInfo.environment["OPEN_REMOTE_DUO_POSTURE"] == posture else {
+            throw XCTSkip("Select the Duo posture and set TEST_RUNNER_OPEN_REMOTE_DUO_POSTURE=\(posture) in xcodebuild's environment.")
+        }
+    }
+
     func testTVAppsStaysOpenWhenPairingIsRequired() {
         launch(additionalArguments: ["-demoUnpaired", "YES"])
         app.buttons["TV Apps"].tap()

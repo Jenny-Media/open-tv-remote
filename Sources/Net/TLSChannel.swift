@@ -68,8 +68,8 @@ final class TLSChannel {
         connection.send(content: Data(message.framed), completion: .contentProcessed { _ in })
     }
 
-    func sendAndWait(_ message: ProtoWriter) async {
-        guard !closed, !Task.isCancelled else { return }
+    func sendAndWait(_ message: ProtoWriter, beginDispatch: () -> Bool) async {
+        guard !closed, !Task.isCancelled, beginDispatch() else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             connection.send(content: Data(message.framed), completion: .contentProcessed { _ in
                 continuation.resume()

@@ -25,7 +25,13 @@ final class AndroidTVDriver: TVDriver {
     /// An app launch requested while (re)connecting; the TV drops idle sessions, so this is common.
     private var pendingLaunch: TVApp?
     /// Package name of the app in the foreground, as reported by the TV.
-    private(set) var currentApp: String?
+    private(set) var currentApp: String? {
+        didSet {
+            if currentApp != oldValue {
+                delegate?.driver(self, didReportForegroundAppPackage: currentApp)
+            }
+        }
+    }
     private var imeCounter = 0
     private var imeFieldCounter = 0
     /// Shown alongside the next code prompt (e.g. after a wrong code forces a fresh one).
@@ -55,6 +61,7 @@ final class AndroidTVDriver: TVDriver {
         remote?.onClose = nil
         remote?.cancel()
         remote = nil
+        currentApp = nil
         pairing?.onClose = nil
         pairing?.cancel()
         pairing = nil
@@ -75,6 +82,7 @@ final class AndroidTVDriver: TVDriver {
             guard let self else { return }
             let wasConnected = self.state == .connected
             self.remote = nil
+            self.currentApp = nil
             if tlsRejected && !wasConnected {
                 // The TV no longer knows our certificate (reset, or pairing removed on the TV).
                 self.device.isPaired = false
@@ -297,7 +305,7 @@ final class AndroidTVDriver: TVDriver {
             key.uint(1, UInt64(code))
             key.uint(2, 3)
         }
-        await remote.sendAndWait(message)
+        await remote.sendAndWait(message, beginDispatch: request.beginDispatch)
     }
 
     func sendText(_ text: String) {

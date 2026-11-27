@@ -23,8 +23,12 @@ final class LocalWebSocket {
         let data = try! JSONSerialization.data(withJSONObject: json)
         send(String(decoding: data, as: UTF8.self))
     }
-    func sendAndWait(_ text: String) async {
-        if isReady { sent.append(text) }
+    func sendAndWait(_ text: String, beginDispatch: () -> Bool = { true }) async {
+        if isReady, !Task.isCancelled, beginDispatch() { sent.append(text) }
+    }
+    func sendAndWait(json: [String: Any], beginDispatch: () -> Bool) async {
+        let data = try! JSONSerialization.data(withJSONObject: json)
+        await sendAndWait(String(decoding: data, as: UTF8.self), beginDispatch: beginDispatch)
     }
     func sendReportingResult(_ text: String) async -> Bool {
         guard isReady, sendSucceeds else { return false }
@@ -39,9 +43,15 @@ final class LocalWebSocket {
 enum LocalHTTP {
     static var started: [String] = []
     static var completions: [String: CheckedContinuation<Int?, Never>] = [:]
+    static var deviceInfo = Data("<device-info/>".utf8)
+    static var delaysDeviceInfo = false
+    private(set) static var deviceInfoRequest: CheckedContinuation<Data?, Never>?
 
     static func get(_ url: URL, timeout: TimeInterval = 3) async -> Data? {
-        Data("<device-info/>".utf8)
+        if delaysDeviceInfo && url.path == "/query/device-info" {
+            return await withCheckedContinuation { deviceInfoRequest = $0 }
+        }
+        return deviceInfo
     }
     static func post(_ url: URL, body: Data? = nil, timeout: TimeInterval = 3) async -> Int? {
         started.append(url.path)
@@ -50,15 +60,25 @@ enum LocalHTTP {
     static func complete(_ path: String, status: Int? = 200) {
         completions.removeValue(forKey: path)?.resume(returning: status)
     }
+    static func completeDeviceInfo() {
+        deviceInfoRequest?.resume(returning: deviceInfo)
+        deviceInfoRequest = nil
+    }
     static func reset() {
         for completion in completions.values { completion.resume(returning: nil) }
         completions = [:]
         started = []
+        deviceInfoRequest?.resume(returning: nil)
+        deviceInfoRequest = nil
+        delaysDeviceInfo = false
+        deviceInfo = Data("<device-info/>".utf8)
     }
 }
 
 enum XMLText {
-    static func first(_ tag: String, in data: Data) -> String? { nil }
+    static func first(_ tag: String, in data: Data) -> String? {
+        try? XMLDocument(data: data).rootElement()?.elements(forName: tag).first?.stringValue
+    }
 }
 
 enum JSON {

@@ -38,6 +38,11 @@ protocol TVDriverDelegate: AnyObject {
     func driver(_ driver: TVDriver, didChangeState state: ConnectionState)
     /// Called when the driver learns something worth persisting (tokens, names, pairing).
     func driver(_ driver: TVDriver, didUpdateDevice device: TVDevice)
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?)
+}
+
+extension TVDriverDelegate {
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?) {}
 }
 
 @MainActor
@@ -73,7 +78,7 @@ extension TVDriver {
     func sendCursor(_ command: CursorCommand, request: RemoteInputRequest) async -> Bool { false }
     var typesLive: Bool { true }
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
-        guard !request.isCancelled, !Task.isCancelled else { return }
+        guard supports(key), request.beginDispatch() else { return }
         send(key)
     }
 }

@@ -52,6 +52,7 @@ struct Wedge: InsettableShape {
 
 struct DPadView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
 
     private let directions: [(key: RemoteKey, angle: Double, symbol: String)] = [
         (.right, 0, "chevron.right"),
@@ -73,7 +74,8 @@ struct DPadView: View {
 
                 ForEach(directions, id: \.angle) { d in
                     KeyCap(shape: Wedge(direction: .degrees(d.angle)), repeats: true,
-                           accessibilityLabel: d.key.accessibilityName) {
+                           accessibilityLabel: d.key.accessibilityName,
+                           repeatAction: model.repeatAction(for: d.key, enabled: cancellableRepeats)) {
                         model.press(d.key)
                     } label: {
                         Image(systemName: d.symbol)
@@ -100,6 +102,7 @@ struct DPadView: View {
 // MARK: - Keyboard
 
 struct KeyboardPadView: View {
+    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     @Environment(AppModel.self) private var model
     @State private var shifted = false
     @State private var symbols = false
@@ -120,67 +123,129 @@ struct KeyboardPadView: View {
         VStack(spacing: 10) {
             controls
             GeometryReader { geo in
-                let key = (geo.size.width - gap * 9) / 10
-                // Shift and delete take up the space of the two keys row three is missing.
-                let wide = key * 1.5 + gap / 2
                 let rows = symbols ? Self.others : Self.letters
-                VStack(spacing: gap) {
-                    ForEach(0..<3) { i in
-                        HStack(spacing: gap) { characters(rows[i], width: key) }
-                    }
-                    HStack(spacing: gap) {
-                        if symbols {
-                            Color.clear.frame(width: wide)
-                        } else {
-                            special(shifted ? "shift.fill" : "shift", label: "Shift", width: wide) { shifted.toggle() }
-                        }
-                        characters(rows[3], width: key)
-                        KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete") { model.typeDelete() } label: {
-                            Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
-                        }
-                        .frame(width: wide)
-                    }
-                    HStack(spacing: gap) {
-                        KeyCap(shape: keyShape, accessibilityLabel: symbols ? "Letters" : "Numbers and symbols") {
-                            symbols.toggle()
+                let keyWidth = (geo.size.width - gap * 9) / 10
+                if cancellableRepeats && keyWidth < 24 {
+                    narrowKeys(rows)
+                } else {
+                    fullKeys(rows, width: keyWidth)
+                }
+            }
+        }
+        #if DEBUG
+        .frame(maxWidth: DemoMode.keyboardTestWidth ?? .infinity)
+        #endif
+    }
+
+    private func fullKeys(_ rows: [[String]], width: CGFloat) -> some View {
+        // Shift and Delete fill the space left by the shorter letter row.
+        let wide = width * 1.5 + gap / 2
+        return VStack(spacing: gap) {
+            ForEach(0..<3) { i in
+                HStack(spacing: gap) { characters(rows[i], width: width) }
+            }
+            HStack(spacing: gap) {
+                if symbols { Color.clear.frame(width: wide) }
+                else { shiftButton.frame(width: wide) }
+                characters(rows[3], width: width)
+                deleteButton.frame(width: wide)
+            }
+            HStack(spacing: gap) {
+                symbolsButton.frame(width: wide)
+                spaceButton
+            }
+        }
+        .frame(maxHeight: 5 * 64 + 4 * gap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func narrowKeys(_ rows: [[String]]) -> some View {
+        let keys = symbols ? rows.flatMap { $0 } : rows.dropFirst().flatMap { $0 } + rows[0]
+        let columns = [GridItem(.adaptive(minimum: 44), spacing: gap)]
+        return VStack(spacing: gap) {
+            HStack(spacing: gap) {
+                symbolsButton
+                if !symbols { shiftButton }
+                spaceButton
+            }
+            .frame(height: 44)
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: gap) {
+                    ForEach(keys, id: \.self) { key in
+                        let text = shifted && !symbols ? key.uppercased() : key
+                        Button {
+                            Haptics.tap()
+                            typeCharacter(text)
                         } label: {
-                            Text(symbols ? "ABC" : "123").font(.system(size: 15, weight: .semibold, design: .rounded))
+                            Text(text)
+                                .font(.system(size: 19, weight: .medium, design: .rounded))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(KeySurface(shape: keyShape))
+                                .contentShape(Rectangle())
                         }
-                        .frame(width: wide)
-                        KeyCap(shape: keyShape, accessibilityLabel: "Space") { model.type(" ") } label: {
-                            Text("space").font(.system(size: 15, weight: .medium, design: .rounded)).foregroundStyle(Theme.secondary)
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .frame(maxHeight: 5 * 64 + 4 * gap)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     /// A small D-pad for moving through results, with clear, delete and Return beside it.
     private var controls: some View {
-        HStack(spacing: 20) {
-            KeyCap(shape: keyShape, accessibilityLabel: "Clear") { model.typeClear() } label: {
-                Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
-            }
-            .frame(height: 52)
-            // Lines up with the delete key opposite.
-            .frame(maxWidth: .infinity, maxHeight: 52 * 2 + 10, alignment: .top)
-            DPadView().frame(width: 150, height: 150)
-            VStack(spacing: 10) {
-                KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete") { model.typeDelete() } label: {
-                    Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                clearButton
+                    .frame(minWidth: 44)
+                    .frame(height: 52)
+                    .frame(maxWidth: .infinity, maxHeight: 114, alignment: .top)
+                DPadView().frame(width: 150, height: 150)
+                VStack(spacing: 10) {
+                    deleteButton.frame(height: 52)
+                    returnButton.frame(height: 52)
                 }
-                .frame(height: 52)
-                KeyCap(shape: keyShape, accessibilityLabel: "Return") { model.typeReturn() } label: {
-                    Image(systemName: "return").font(.system(size: 16, weight: .semibold))
-                }
-                .frame(height: 52)
+                .frame(minWidth: 44, maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+
+            VStack(spacing: 8) {
+                DPadView().frame(width: 108, height: 108)
+                HStack(spacing: 6) {
+                    clearButton
+                    deleteButton
+                    returnButton
+                }
+                .frame(height: 44)
+            }
         }
-        .frame(height: 150)
+    }
+
+    private var clearButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Clear") { model.typeClear() } label: {
+            Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+    }
+
+    private var deleteButton: some View {
+        let deviceID = model.currentID
+        let repeatDelete: ((RemoteInputRequest) async -> Void)? = cancellableRepeats ? { request in
+            guard request.canDispatch, model.currentID == deviceID else {
+                request.cancel()
+                return
+            }
+            await model.repeatTypeDelete(request: request)
+        } : nil
+        return KeyCap(shape: keyShape, repeats: true, accessibilityLabel: "Delete", repeatAction: repeatDelete) {
+            model.typeDelete()
+        } label: {
+            Image(systemName: "delete.left").font(.system(size: 16, weight: .semibold))
+        }
+    }
+
+    private var returnButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Return") { model.typeReturn() } label: {
+            Image(systemName: "return").font(.system(size: 16, weight: .semibold))
+        }
     }
 
     private var keyShape: RoundedRectangle { RoundedRectangle(cornerRadius: 8, style: .continuous) }
@@ -189,8 +254,7 @@ struct KeyboardPadView: View {
         ForEach(row, id: \.self) { c in
             let text = shifted && !symbols ? c.uppercased() : c
             KeyCap(shape: keyShape, accessibilityLabel: text) {
-                model.type(text)
-                shifted = false
+                typeCharacter(text)
             } label: {
                 Text(text).font(.system(size: 19, weight: .medium, design: .rounded))
             }
@@ -198,17 +262,36 @@ struct KeyboardPadView: View {
         }
     }
 
-    private func special(_ symbol: String, label: String, width: CGFloat, action: @escaping () -> Void) -> some View {
-        KeyCap(shape: keyShape, accessibilityLabel: label, action: action) {
-            Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+    private func typeCharacter(_ text: String) {
+        model.type(text)
+        shifted = false
+    }
+
+    private var shiftButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Shift") { shifted.toggle() } label: {
+            Image(systemName: shifted ? "shift.fill" : "shift").font(.system(size: 16, weight: .semibold))
         }
-        .frame(width: width)
+    }
+
+    private var symbolsButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: symbols ? "Letters" : "Numbers and symbols") {
+            symbols.toggle()
+        } label: {
+            Text(symbols ? "ABC" : "123").font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+    }
+
+    private var spaceButton: some View {
+        KeyCap(shape: keyShape, accessibilityLabel: "Space") { model.type(" ") } label: {
+            Text("space").font(.system(size: 15, weight: .medium, design: .rounded)).foregroundStyle(Theme.secondary)
+        }
     }
 }
 
 // MARK: - Keypad
 
 struct KeypadView: View {
+    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -224,7 +307,10 @@ struct KeypadView: View {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 18, weight: .semibold))
                 }
                 digit(0)
-                KeyCap(repeats: true, enabled: model.supports(.backspace), accessibilityLabel: "Delete") { model.press(.backspace) } label: {
+                KeyCap(repeats: true, enabled: model.supports(.backspace), accessibilityLabel: "Delete",
+                       repeatAction: model.repeatAction(for: .backspace, enabled: cancellableRepeats)) {
+                    model.press(.backspace)
+                } label: {
                     Image(systemName: "delete.left").font(.system(size: 18, weight: .semibold))
                 }
             }

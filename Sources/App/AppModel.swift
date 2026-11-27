@@ -9,6 +9,8 @@ final class AppModel: TVDriverDelegate {
     private(set) var state: ConnectionState = .idle
     private(set) var supportsCursor = false
     private(set) var installedApps: [TVApp]?
+    private var reportedForegroundApp: String?
+    var lastReportedAppName: String? { state.isConnected ? reportedForegroundApp : nil }
     /// True while we search the network for a saved TV that stopped answering at its old address.
     private(set) var isRelocating = false
 
@@ -75,7 +77,10 @@ final class AppModel: TVDriverDelegate {
     let jellyfin = JellyfinStore()
 
     @ObservationIgnored private var driver: TVDriver? {
-        didSet { supportsCursor = driver?.supportsCursor == true }
+        didSet {
+            supportsCursor = driver?.supportsCursor == true
+            reportedForegroundApp = nil
+        }
     }
     @ObservationIgnored private var relocateTask: Task<Void, Never>?
     @ObservationIgnored private var relocationAttempted = false
@@ -93,6 +98,7 @@ final class AppModel: TVDriverDelegate {
             self.driver = driver
             supportsCursor = driver.supportsCursor
             state = driver.state
+            self.driver(driver, didReportForegroundAppPackage: DemoMode.foregroundAppPackage)
             if UserDefaults.standard.bool(forKey: "demoEyesFree") { remoteControlMode = .eyesFree }
             else if let raw = UserDefaults.standard.string(forKey: "padMode"),
                     let mode = RemoteControlMode(rawValue: raw) { remoteControlMode = mode }
@@ -376,9 +382,13 @@ final class AppModel: TVDriverDelegate {
     private(set) var demoLastInput = "None"
 
     private func recordDemoInput(_ key: RemoteKey) {
+        recordDemoInput(key.accessibilityName)
+    }
+
+    private func recordDemoInput(_ input: String) {
         guard DemoMode.isEnabled else { return }
         demoInputCount += 1
-        demoLastInput = key.accessibilityName
+        demoLastInput = input
     }
     #endif
 
@@ -430,22 +440,64 @@ final class AppModel: TVDriverDelegate {
 
     /// What's been typed on the keyboard pad since the last Return, for clear and for TVs that don't type live.
     var typed = ""
+    @ObservationIgnored private var pendingTypeDelete: RemoteInputRequest?
 
     var typesLive: Bool { driver?.typesLive ?? true }
 
     /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
     func type(_ text: String) {
+        cancelPendingTypeDelete()
+        #if DEBUG
+        recordDemoInput(text)
+        #endif
         typed += text
         if typesLive { sendText(text) }
     }
 
     func typeDelete() {
+        cancelPendingTypeDelete()
         if !typed.isEmpty { typed.removeLast() }
         if typesLive { press(.backspace) }
     }
 
+    func repeatTypeDelete(request: RemoteInputRequest) async {
+        guard remoteCommandsAvailable, !isConnectionPaused, request.canDispatch else {
+            request.cancel()
+            return
+        }
+        guard typesLive else {
+            Haptics.tick()
+            typeDelete()
+            return
+        }
+        guard supports(.backspace) else {
+            request.cancel()
+            return
+        }
+        guard pendingTypeDelete == nil, remoteInputAvailable else { return }
+        Haptics.tick()
+        pendingTypeDelete = request
+        request.onDispatch = { [weak self, weak request] in
+            guard let self, let request, self.pendingTypeDelete === request else { return }
+            self.pendingTypeDelete = nil
+            if !self.typed.isEmpty { self.typed.removeLast() }
+        }
+        defer {
+            request.onDispatch = nil
+            if pendingTypeDelete === request { pendingTypeDelete = nil }
+        }
+        await pressInteractively(.backspace, request: request)
+    }
+
+    private func cancelPendingTypeDelete() {
+        // A deliberate edit takes precedence over a repeat that is still waiting.
+        pendingTypeDelete?.cancel()
+        pendingTypeDelete = nil
+    }
+
     /// Deletes what's been typed since the last Return.
     func typeClear() {
+        cancelPendingTypeDelete()
         if typesLive {
             for _ in typed { press(.backspace) }
         }
@@ -453,6 +505,7 @@ final class AppModel: TVDriverDelegate {
     }
 
     func typeReturn() {
+        cancelPendingTypeDelete()
         if typesLive {
             press(.enter)
         } else if !typed.isEmpty {
@@ -537,5 +590,15 @@ final class AppModel: TVDriverDelegate {
         guard let i = devices.firstIndex(where: { $0.id == device.id }) else { return }
         devices[i] = device
         DeviceStore.save(devices)
+    }
+
+    func driver(_ driver: TVDriver, didReportForegroundAppPackage package: String?) {
+        guard driver === self.driver else { return }
+        reportedForegroundApp = switch package {
+        case "com.google.android.youtube.tv": "YouTube"
+        case "com.netflix.ninja": "Netflix"
+        case let package?: CatalogApp.all.first { $0.androidLink == "market://launch?id=\(package)" }?.name
+        case nil: nil
+        }
     }
 }

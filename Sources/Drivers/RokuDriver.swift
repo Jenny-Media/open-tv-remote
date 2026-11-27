@@ -1,18 +1,33 @@
 import Foundation
+import Observation
 
 /// Roku External Control Protocol: plain HTTP on port 8060, no pairing.
 @MainActor
+@Observable
 final class RokuDriver: TVDriver {
+    private struct KeyCapabilities {
+        var isTV = false
+        var playerVolume: Bool?
+
+        // The flag describes streaming players. Older firmware may omit it.
+        var supportsVolume: Bool { isTV || playerVolume != false }
+    }
+
     private(set) var device: TVDevice
-    weak var delegate: TVDriverDelegate?
+    @ObservationIgnored weak var delegate: TVDriverDelegate?
     private(set) var state: ConnectionState = .idle {
-        didSet { if state != oldValue { delegate?.driver(self, didChangeState: state) } }
+        didSet {
+            if oldValue == .connected, state != .connected { availabilityGeneration += 1 }
+            if state != oldValue { delegate?.driver(self, didChangeState: state) }
+        }
     }
 
     private var base: URL { URL(string: "http://\(device.host):8060")! }
     /// Keypresses must arrive in order, so they go through one serial chain.
-    private var queue: Task<Void, Never>?
-    private var generation = 0
+    @ObservationIgnored private var queue: Task<Void, Never>?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var availabilityGeneration = 0
+    private var keyCapabilities = KeyCapabilities()
 
     init(device: TVDevice) {
         self.device = device
@@ -29,6 +44,10 @@ final class RokuDriver: TVDriver {
                 state = .failed("Couldn't reach the Roku. Is it on and on the same Wi-Fi?")
                 return
             }
+            keyCapabilities = KeyCapabilities(
+                isTV: XMLText.first("is-tv", in: data) == "true",
+                playerVolume: XMLText.first("supports-audio-volume-control", in: data).flatMap(Bool.init)
+            )
             if let name = XMLText.first("user-device-name", in: data) ?? XMLText.first("friendly-device-name", in: data),
                name != device.name {
                 device.name = name
@@ -48,17 +67,17 @@ final class RokuDriver: TVDriver {
         state = .idle
     }
 
-    func supports(_ key: RemoteKey) -> Bool { Self.keyName(key) != nil }
+    func supports(_ key: RemoteKey) -> Bool { keyName(key) != nil }
 
     func send(_ key: RemoteKey) {
-        guard let name = Self.keyName(key) else { return }
-        enqueue("keypress/\(name)")
+        guard let name = keyName(key) else { return }
+        enqueue("keypress/\(name)", key: key)
     }
 
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
         guard state == .connected, !request.isCancelled, !Task.isCancelled,
-              let name = Self.keyName(key) else { return }
-        let operation = enqueue("keypress/" + name, request: request)
+              let name = keyName(key) else { return }
+        let operation = enqueue("keypress/" + name, key: key, request: request)
         await withTaskCancellationHandler {
             await operation.value
         } onCancel: {
@@ -85,16 +104,20 @@ final class RokuDriver: TVDriver {
     }
 
     @discardableResult
-    private func enqueue(_ path: String, request: RemoteInputRequest? = nil) -> Task<Void, Never> {
+    private func enqueue(_ path: String, key: RemoteKey? = nil, request: RemoteInputRequest? = nil) -> Task<Void, Never> {
         let previous = queue
         let token = generation
+        // An active hold can resume, but a queued repeat belongs to the connection it entered on.
+        let repeatAvailability = request?.requiresCurrentConnection == true ? availabilityGeneration : nil
         // Percent-encoded paths must not be re-encoded by appending(path:).
         let url = URL(string: base.absoluteString + "/" + path)!
         let operation = Task { @MainActor [weak self] in
             await previous?.value
             guard let self, !Task.isCancelled, token == self.generation else { return }
+            if let key, self.keyName(key) == nil { return }
+            if let repeatAvailability, repeatAvailability != self.availabilityGeneration { return }
             if let request {
-                guard !request.isCancelled, self.state == .connected else { return }
+                guard self.state == .connected, request.beginDispatch() else { return }
             }
             let status = await LocalHTTP.post(url, timeout: request == nil ? 3 : 2)
             guard !Task.isCancelled, token == self.generation else { return }
@@ -114,7 +137,7 @@ final class RokuDriver: TVDriver {
         return operation
     }
 
-    private static func keyName(_ key: RemoteKey) -> String? {
+    private func keyName(_ key: RemoteKey) -> String? {
         switch key {
         case .power: "Power"
         case .powerOff: nil
@@ -126,11 +149,11 @@ final class RokuDriver: TVDriver {
         case .back: "Back"
         case .home, .exit: "Home"
         case .menu, .info: "Info"
-        case .input: "InputTuner"
+        case .input: keyCapabilities.isTV ? "InputTuner" : nil
         case .search: "Search"
-        case .volumeUp: "VolumeUp"
-        case .volumeDown: "VolumeDown"
-        case .mute: "VolumeMute"
+        case .volumeUp: keyCapabilities.supportsVolume ? "VolumeUp" : nil
+        case .volumeDown: keyCapabilities.supportsVolume ? "VolumeDown" : nil
+        case .mute: keyCapabilities.supportsVolume ? "VolumeMute" : nil
         case .channelUp: "ChannelUp"
         case .channelDown: "ChannelDown"
         case .playPause: "Play"
