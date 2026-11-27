@@ -24,11 +24,17 @@ final class DemoDriver: TVDriver {
     func pair() { state = .pairing(.enterCode(length: 6, error: nil)) }
     func submitPairingCode(_ code: String) {
         guard case .pairing(.enterCode) = state else { return }
-        state = .pairing(.enterCode(length: 6, error: "Incorrect pairing code."))
+        if DemoMode.guideTestProfile != nil, code == "123456" {
+            state = .connected
+        } else {
+            state = .pairing(.enterCode(length: 6, error: "Incorrect pairing code."))
+        }
     }
     func disconnect() {}
     func supports(_ key: RemoteKey) -> Bool { true }
+    var supportsCursor: Bool { device.brand == .lg }
     func send(_ key: RemoteKey) {}
+    func sendCursor(_ command: CursorCommand, request: RemoteInputRequest) async -> Bool { request.canDispatch }
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
         guard request.beginDispatch() else { return }
         let delay = UserDefaults.standard.integer(forKey: "demoInteractiveDelayMS")
@@ -43,14 +49,21 @@ enum DemoMode {
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("-demo") }
 
     static var devices: [TVDevice] {
-        [
-            TVDevice(name: "Living Room TV", brand: .androidTV, host: "192.168.1.20",
-                     isPaired: !UserDefaults.standard.bool(forKey: "demoUnpaired")),
+        let primary = UserDefaults.standard.bool(forKey: "demoLGCursor")
+            ? TVDevice(name: "Living Room LG", brand: .lg, host: "192.168.1.20", token: "demo")
+            : TVDevice(name: "Living Room TV", brand: .androidTV, host: "192.168.1.20",
+                       isPaired: !UserDefaults.standard.bool(forKey: "demoUnpaired"))
+        return [
+            primary,
             TVDevice(name: "Bedroom Roku", brand: .roku, host: "192.168.1.31"),
         ]
     }
 
     static var sheet: String? { UserDefaults.standard.string(forKey: "demoSheet") }
+    static var guideTestProfile: UUID? {
+        guard isEnabled, let value = UserDefaults.standard.string(forKey: "demoGuideTestProfile") else { return nil }
+        return UUID(uuidString: value)
+    }
     static var foregroundAppPackage: String? { UserDefaults.standard.string(forKey: "demoForegroundAppPackage") }
     static var keyboardTestWidth: CGFloat? {
         let width = UserDefaults.standard.double(forKey: "demoKeyboardWidth")

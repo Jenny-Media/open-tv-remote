@@ -29,10 +29,10 @@ enum TVBrand: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Shown before pairing so people know what's about to appear on their TV.
     var pairingExplanation: String {
         switch self {
-        case .androidTV: "Your TV will show a 6-character code. Type it here to finish pairing."
-        case .roku: "Roku TVs don't need pairing."
-        case .samsung: "Your TV will ask whether to allow Remote Lab. Choose Allow with your regular remote."
-        case .lg: "Your TV will ask whether to accept the connection. Choose Accept with your regular remote."
+        case .androidTV: "Choose Pair, then enter the code shown on your TV."
+        case .roku: "Connects directly over your local network."
+        case .samsung: "Choose Pair, then select Allow on your TV."
+        case .lg: "Choose Pair, then use your TV remote to accept the connection on the TV."
         }
     }
 
@@ -54,6 +54,8 @@ struct TVDevice: Codable, Identifiable, Hashable, Sendable {
     var model: String?
     /// Samsung access token or LG client key, issued by the TV when the user allows us.
     var token: String?
+    /// The name used to authorize this Samsung connection. Older records omit it.
+    var samsungClientName: String? = nil
     /// Android TV: the TV has accepted our client certificate.
     var isPaired: Bool = false
     /// Samsung: Wi-Fi/Ethernet MAC, so we can wake the TV with a Wake-on-LAN packet.
@@ -63,6 +65,7 @@ struct TVDevice: Codable, Identifiable, Hashable, Sendable {
     var withoutCredentials: TVDevice {
         var shared = self
         shared.token = nil
+        shared.samsungClientName = nil
         shared.isPaired = false
         return shared
     }

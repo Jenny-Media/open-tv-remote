@@ -41,6 +41,7 @@ private struct CursorControls: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("cursor.reverseScroll.v1") private var reverseScroll = false
     @State private var sender: CursorSender
+    @State private var showingCursorSettings = false
     let tvName: String
     let enabled: Bool
     let sessionID: String?
@@ -49,6 +50,8 @@ private struct CursorControls: View {
     let showsTabletopControls: Bool
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
+
+    private var inputEnabled: Bool { enabled && scenePhase == .active && !showingCursorSettings }
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
          wide: Bool = false, showsTabletopControls: Bool = false,
@@ -86,8 +89,10 @@ private struct CursorControls: View {
                     } else {
                         instructions
                         controlSurface
-                        preferences
-                        actions
+                        HStack(spacing: 12) {
+                            actions
+                            cursorSettingsButton
+                        }
                     }
                 }
             }
@@ -101,6 +106,21 @@ private struct CursorControls: View {
         .onChange(of: sessionID) { _, _ in sender.stop() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { sender.stop() } }
         .onDisappear { sender.stop() }
+        .sheet(isPresented: $showingCursorSettings) {
+            NavigationStack {
+                Form { preferences }
+                    .formStyle(.grouped)
+                    .navigationTitle("Cursor Settings")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingCursorSettings = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 350, minHeight: 210)
+            #endif
+        }
     }
 
     private var settingsScroll: some View {
@@ -108,8 +128,8 @@ private struct CursorControls: View {
             VStack(spacing: 16) {
                 if showsTabletopControls { DuoQuickControls() }
                 instructions
-                preferences
                 actions
+                cursorSettingsButton
             }
             .frame(maxWidth: .infinity)
         }
@@ -134,7 +154,7 @@ private struct CursorControls: View {
     private var controlSurface: some View {
         HStack(spacing: 12) {
             touchpad
-            CursorScrollStrip(enabled: enabled && scenePhase == .active,
+            CursorScrollStrip(enabled: inputEnabled,
                               activity: sender.scrollActivity,
                               scroll: { scroll(0, $0) }, release: { sender.release() })
                 .frame(width: dynamicTypeSize.isAccessibilitySize ? 140 : 56)
@@ -142,6 +162,21 @@ private struct CursorControls: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: compactHeight ? 108 : dynamicTypeSize.isAccessibilitySize ? 220 : 180)
+    }
+
+    private var cursorSettingsButton: some View {
+        Button {
+            sender.stop()
+            showingCursorSettings = true
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(minWidth: 52, minHeight: 56)
+                .background(KeySurface(shape: RoundedRectangle(cornerRadius: 18)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cursor Settings")
+        .accessibilityIdentifier("lgCursorSettings")
     }
 
     private var preferences: some View {
@@ -162,6 +197,9 @@ private struct CursorControls: View {
     }
 
     @ViewBuilder private var actions: some View {
+        #if os(iOS)
+        action("Back", symbol: "arrow.uturn.backward", command: .back)
+        #else
         if dynamicTypeSize.isAccessibilitySize {
             VStack(spacing: 12) {
                 action("Back", symbol: "arrow.uturn.backward", command: .back)
@@ -173,6 +211,7 @@ private struct CursorControls: View {
                 action("Click", symbol: "cursorarrow.click", command: .click)
             }
         }
+        #endif
     }
 
     private var status: String {
@@ -198,13 +237,13 @@ private struct CursorControls: View {
             .foregroundStyle(Theme.secondary.opacity(0.6))
             .allowsHitTesting(false)
             #if os(iOS)
-            CursorTouchpad(enabled: enabled && scenePhase == .active,
+            CursorTouchpad(enabled: inputEnabled,
                            move: { dx, dy in move(dx, dy) },
                            scroll: { dx, dy in scroll(dx, dy) },
                            click: { press(.click) }, release: { sender.release() })
                 .id(sessionID)
             #else
-            MacCursorTouchpad(enabled: enabled && scenePhase == .active,
+            MacCursorTouchpad(enabled: inputEnabled,
                               move: { dx, dy in move(dx, dy) },
                               click: { press(.click) }, release: { sender.release() })
                 .id(sessionID)
@@ -227,19 +266,19 @@ private struct CursorControls: View {
     }
 
     private func move(_ dx: Double, _ dy: Double) {
-        guard enabled, scenePhase == .active else { return }
+        guard inputEnabled else { return }
         sender.drag(dx: dx, dy: dy)
     }
 
     private func scroll(_ dx: Double, _ dy: Double) {
-        guard enabled, scenePhase == .active else { return }
+        guard inputEnabled else { return }
         if case let .scroll(x, y)? = CursorMotion.scroll(dx: dx, dy: dy, reversed: reverseScroll) {
             sender.scroll(dx: x, dy: y)
         }
     }
 
     private func press(_ command: CursorCommand) {
-        guard enabled, scenePhase == .active else { return }
+        guard inputEnabled else { return }
         sender.press(command)
     }
 }

@@ -9,6 +9,7 @@ enum TVDeviceSync {
             modes.move(from: previous.id, to: tv.id)
             var tv = tv
             tv.token = previous.token
+            tv.samsungClientName = previous.samsungClientName
             tv.isPaired = previous.isPaired
             tv.macAddress = tv.macAddress ?? previous.macAddress
             return tv

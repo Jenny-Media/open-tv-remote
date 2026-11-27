@@ -8,6 +8,18 @@ struct DevicesSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if model.devices.isEmpty && !model.discovery.localNetworkDenied {
+                    Section {
+                        Label {
+                            Text("Turn on your TV and connect both devices to the same local network. Allow local network access so the app can find your TV.")
+                                .font(.subheadline)
+                        } icon: {
+                            Image(systemName: "wifi")
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
+                }
+
                 if !model.devices.isEmpty {
                     Section("Your TVs") {
                         ForEach(model.devices) { device in
@@ -16,7 +28,8 @@ struct DevicesSheet: View {
                                 dismiss()
                             } label: {
                                 DeviceRow(name: device.name, brand: device.brand, host: device.host,
-                                          isCurrent: device.id == model.currentID, isPaired: device.hasCredentials)
+                                          isCurrent: device.id == model.currentID,
+                                          setupHint: device.hasCredentials ? nil : device.brand.pairingExplanation)
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -35,7 +48,7 @@ struct DevicesSheet: View {
                             Label("Local network access is off", systemImage: "wifi.exclamationmark")
                                 .font(.headline)
                                 .foregroundStyle(.orange)
-                            Text("Just a TV Remote needs it to find and control TVs on your Wi-Fi. Turn on Local Network for Just a TV Remote in Settings → Privacy & Security → Local Network.")
+                            Text("Just a TV Remote needs it to find and control TVs on your local network. Turn on Local Network for Just a TV Remote in Settings → Privacy & Security → Local Network.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             #if os(iOS)
@@ -59,13 +72,14 @@ struct DevicesSheet: View {
                             model.select(tv.device)
                             dismiss()
                         } label: {
-                            DeviceRow(name: tv.name, brand: tv.brand, host: tv.host, isCurrent: false, isPaired: nil)
+                            DeviceRow(name: tv.name, brand: tv.brand, host: tv.host, isCurrent: false,
+                                      setupHint: tv.brand.pairingExplanation)
                         }
                         .buttonStyle(.plain)
                     }
                     if fresh.isEmpty && !model.discovery.isScanning {
                         Text(model.discovery.found.isEmpty
-                             ? "No TVs found. Make sure your TV is on and connected to the same Wi-Fi, or add it by IP address."
+                             ? "No TVs found. Make sure your TV is on and connected to the same local network, or add it by IP address."
                              : "No other TVs found.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -114,7 +128,7 @@ private struct DeviceRow: View {
     let brand: TVBrand
     let host: String
     let isCurrent: Bool
-    let isPaired: Bool?
+    let setupHint: String?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -128,11 +142,13 @@ private struct DeviceRow: View {
                 Text("\(brand.shortName) · \(host)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let setupHint {
+                    Text(setupHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if isPaired == false {
-                Text("Needs pairing").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
-            }
             if isCurrent {
                 Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Theme.accent)
             }
@@ -157,7 +173,7 @@ private struct ManualAddSheet: View {
                         ForEach(TVBrand.allCases) { Text($0.displayName).tag($0) }
                     }
                 } footer: {
-                    Text(brand.examples)
+                    Text(brand.examples + "\n" + brand.pairingExplanation)
                 }
                 Section {
                     TextField("IP address (e.g. 192.168.1.42)", text: $host)

@@ -100,14 +100,6 @@ private struct JoystickControls: View {
 
     private var joystickSurface: some View {
         VStack(spacing: compactHeight ? 6 : 16) {
-            VStack(spacing: 5) {
-                Text(enabled ? "Touch anywhere. Drag to move." : "Connect to a TV first.")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                if !compactHeight {
-                    Text(enabled ? "Tap for OK · Hold a direction to repeat" : "Choose or connect to a TV above.")
-                        .font(.system(size: 13)).foregroundStyle(Theme.secondary)
-                }
-            }
             surface.frame(minHeight: compactHeight ? 108 : 160)
             if let inputLog {
                 Text(inputLog).font(.caption.monospaced()).accessibilityIdentifier("eyesFreeInputLog")
@@ -133,20 +125,24 @@ private struct JoystickControls: View {
                     if let origin = input.origin {
                         stick.position(origin)
                     } else {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 8) {
                             Image(systemName: "hand.draw").font(.system(size: 48, weight: .light))
-                            Text("Your thumb sets the center")
-                                .font(.system(size: 16, weight: .medium, design: .rounded))
+                            Text(enabled ? "Drag to move · Tap for OK" : "Connect to a TV to start")
+                                .font(.subheadline)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 8)
                         }
-                        .foregroundStyle(Theme.secondary.opacity(0.65))
+                        .foregroundStyle(Theme.secondary)
                         .frame(width: geo.size.width, height: geo.size.height)
                     }
-                    VStack {
-                        Text(input.direction?.accessibilityName ?? (touching ? "Rest to pause" : "Ready when you are"))
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Theme.accent.opacity(enabled ? 0.8 : 0.3))
-                            .padding(.top, 20)
-                        Spacer()
+                    if touching && enabled {
+                        VStack {
+                            Text(input.direction?.accessibilityName ?? "Rest to pause")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Theme.accent)
+                                .padding(.top, 12)
+                            Spacer()
+                        }
                     }
             }
             .clipped()

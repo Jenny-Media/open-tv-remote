@@ -4,8 +4,8 @@ set -eu
 cd "$(dirname "$0")/.."
 package="$PWD/build/joystick-tests"
 mkdir -p "$package/Sources/JoystickCore" "$package/Tests/JoystickCoreTests"
-cp Sources/Core/RemoteWindowLayout.swift Sources/Core/RemoteControlMode.swift Sources/Core/TVDeviceSync.swift Sources/Core/RemoteInputAvailability.swift Sources/Core/RemoteKey.swift Sources/Core/JoystickInput.swift Sources/Core/CursorInput.swift Sources/Core/TVDriver.swift Sources/Core/TVDevice.swift \
-  Sources/Drivers/RokuDriver.swift Sources/Drivers/LGDriver.swift Tests/Support/RemoteTransportStubs.swift "$package/Sources/JoystickCore/"
+cp Sources/Core/AppBranding.swift Sources/Core/RemoteWindowLayout.swift Sources/Core/RemoteControlMode.swift Sources/Core/TVDeviceSync.swift Sources/Core/RemoteInputAvailability.swift Sources/Core/RemoteKey.swift Sources/Core/JoystickInput.swift Sources/Core/CursorInput.swift Sources/Core/TVDriver.swift Sources/Core/TVDevice.swift \
+  Sources/Drivers/RokuDriver.swift Sources/Drivers/LGDriver.swift Sources/Drivers/SamsungDriver.swift Tests/Support/RemoteTransportStubs.swift "$package/Sources/JoystickCore/"
 cp Shared/RemoteActivitySession.swift Shared/RemoteActivityPreferences.swift Sources/App/RemoteActivityController.swift "$package/Sources/JoystickCore/"
 cp Tests/RemoteWindowLayoutTests.swift Tests/RemoteModeTests.swift Tests/TVDeviceSyncTests.swift Tests/RemoteInputAvailabilityTests.swift Tests/JoystickInputTests.swift Tests/CursorInputTests.swift Tests/RemoteDriverTests.swift Tests/RemoteActivitySessionTests.swift Tests/RemoteActivityControllerTests.swift "$package/Tests/JoystickCoreTests/"
 cat > "$package/Package.swift" <<'PACKAGE'

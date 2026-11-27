@@ -57,6 +57,21 @@ struct TVDeviceSyncTests {
         }
     }
 
+    @Test func samsungClientNameFollowsLocalPairingAcrossSync() {
+        withPreferences { modes, _ in
+            let local = TVDevice(name: "Samsung", brand: .samsung, host: "192.0.2.40",
+                                 token: "local-token", samsungClientName: "Just a TV Remote")
+            var moved = local.withoutCredentials
+            moved.host = "192.0.2.41"
+            #expect(moved.token == nil)
+            #expect(moved.samsungClientName == nil)
+
+            let adopted = TVDeviceSync.merge([moved], preserving: [local], modes: modes)
+            #expect(adopted.first?.token == local.token)
+            #expect(adopted.first?.samsungClientName == local.samsungClientName)
+        }
+    }
+
     @Test func unmatchedTVsDoNotTakeOtherModesOrCredentials() {
         withPreferences { modes, _ in
             let local = TVDevice(name: "Room", brand: .lg, host: "192.0.2.10", token: "local-test-token")

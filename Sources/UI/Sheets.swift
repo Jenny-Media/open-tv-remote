@@ -19,7 +19,7 @@ struct PairingSheet: View {
                         waiting(title: "Checking the code…", message: " ")
                     case .pairing(.acceptOnTV):
                         waiting(title: "Check your TV",
-                                message: "Use your regular remote to choose Allow on the TV screen.")
+                                message: "Use your TV remote to approve the pairing request on the TV screen.")
                     default:
                         waiting(title: "Talking to your TV…", message: " ")
                     }

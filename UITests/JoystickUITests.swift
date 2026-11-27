@@ -24,6 +24,65 @@ final class JoystickUITests: XCTestCase {
     private var stick: XCUIElement { app.descendants(matching: .any).matching(identifier: "eyesFreeStick").firstMatch }
     private var count: Int { Int(log.label.split(separator: ":").first ?? "-1") ?? -1 }
 
+    func testFirstRemoteGuideAfterPairingASavedTVCanBeSkippedAndReopened() {
+        let arguments = ["-demoGuideTestProfile", UUID().uuidString]
+        launch(openMode: false, additionalArguments: arguments + ["-demoUnpaired", "YES"])
+        let offer = app.buttons["firstRemoteGuide"]
+        let pair = app.buttons["Pair"]
+        XCTAssertTrue(pair.waitForExistence(timeout: 5))
+        XCTAssertFalse(offer.exists)
+        pair.tap()
+        let code = app.textFields["Pairing code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 5))
+        code.typeText("123456")
+        XCTAssertTrue(offer.waitForExistence(timeout: 5))
+        app.buttons["skipRemoteGuide"].tap()
+        XCTAssertTrue(offer.waitForNonExistence(timeout: 5))
+        selectMode("eyesFree", title: "Eyes-free")
+        XCTAssertTrue(app.staticTexts["Drag to move · Tap for OK"].exists)
+
+        app.terminate()
+        launch(additionalArguments: arguments)
+        XCTAssertFalse(app.buttons["firstRemoteGuide"].exists)
+
+        app.buttons["Settings"].tap()
+        let help = app.buttons["remoteGuideInSettings"]
+        XCTAssertTrue(help.waitForExistence(timeout: 5))
+        help.tap()
+        XCTAssertTrue(app.navigationBars["How to use the remote"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Use the joystick"].exists)
+    }
+
+    func testPairingExplainsTheCodeBeforeTheUserStarts() {
+        launch(openMode: false, additionalArguments: ["-demoUnpaired", "YES"])
+        let explanation = app.staticTexts["Choose Pair, then enter the code shown on your TV."]
+        XCTAssertTrue(explanation.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["Pairing code"].exists)
+        app.buttons["Pair"].tap()
+        XCTAssertTrue(app.textFields["Pairing code"].waitForExistence(timeout: 5))
+    }
+
+    func testCursorSettingsAreOnDemandAndTouchpadRemainsAvailable() {
+        launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
+        let settings = app.buttons["lgCursorSettings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let touchpad = app.descendants(matching: .any).matching(identifier: "lgCursorTouchpad").firstMatch
+        XCTAssertTrue(touchpad.isHittable)
+        XCTAssertFalse(app.buttons["Click"].exists)
+        XCTAssertFalse(app.sliders["Cursor speed"].exists)
+        XCTAssertFalse(app.switches["Reverse scrolling"].exists)
+
+        settings.tap()
+        let sheet = app.navigationBars["Cursor Settings"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.sliders["Cursor speed"].isHittable)
+        XCTAssertTrue(app.switches["Reverse scrolling"].isHittable)
+        sheet.buttons["Done"].tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(touchpad.isHittable)
+        XCTAssertFalse(app.buttons["Click"].exists)
+    }
+
     func testSwitchPersistentModes() {
         launch(openMode: false)
         selectMode("eyesFree", title: "Eyes-free")
