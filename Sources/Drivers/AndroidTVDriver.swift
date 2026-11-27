@@ -65,6 +65,7 @@ final class AndroidTVDriver: TVDriver {
         pairing?.onClose = nil
         pairing?.cancel()
         pairing = nil
+        nextPairingError = nil
         state = .idle
     }
 
