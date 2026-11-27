@@ -712,6 +712,73 @@ struct RemoteDriverTests {
         }
     }
 
+    @Test func lgSelectRecoversWhenThePointerItWasWaitingForCloses() async {
+        LocalWebSocket.instances = []
+        LocalWebSocket.delayedOpenPaths = ["/pointer"]
+        let driver = LGDriver(device: TVDevice(name: "Test LG", brand: .lg, host: "192.0.2.20", token: "test"))
+        defer {
+            driver.disconnect()
+            LocalWebSocket.delayedOpenPaths = []
+        }
+        driver.connect()
+        let control = LocalWebSocket.instances.last!
+        control.onText?("{\"type\":\"registered\",\"id\":\"register_0\",\"payload\":{}}")
+        #expect(driver.state == .connected)
+        let originalRequestCount = control.sent.count
+
+        var waitingForPointer = false
+        let select = Task {
+            waitingForPointer = true
+            await driver.sendInteractive(.select, request: RemoteInputRequest())
+        }
+        defer { select.cancel() }
+        await waitUntil { waitingForPointer }
+        #expect(control.sent.count == originalRequestCount)
+        respondToPointerRequest(control)
+        let firstPointer = LocalWebSocket.instances.last!
+        #expect(!firstPointer.isReady)
+        firstPointer.peerClosed()
+
+        await waitUntil { control.sent.count > originalRequestCount }
+        let requestedReplacement = control.sent.count == originalRequestCount + 1
+        #expect(requestedReplacement)
+        guard requestedReplacement else { return }
+        respondToPointerRequest(control)
+        let replacement = LocalWebSocket.instances.last!
+        #expect(replacement !== firstPointer)
+        replacement.completeHandshake()
+        await select.value
+
+        #expect(firstPointer.sent.isEmpty)
+        #expect(replacement.sent == ["type:button\nname:ENTER\n\n"])
+        #expect(driver.state == .connected)
+        #expect(control.isReady)
+        driver.sendText("A")
+        #expect(control.sent.last.flatMap(JSON.parse)?["uri"] as? String == "ssap://com.webos.service.ime/insertText")
+    }
+
+    @Test func lgSelectCanReplaceAnAlreadyExpiredPointerRequest() async throws {
+        LocalWebSocket.instances = []
+        let driver = LGDriver(device: TVDevice(name: "Test LG", brand: .lg, host: "192.0.2.20", token: "test"))
+        defer { driver.disconnect() }
+        driver.connect()
+        let control = LocalWebSocket.instances.last!
+        control.onText?("{\"type\":\"registered\",\"id\":\"register_0\",\"payload\":{}}")
+        let originalRequestCount = control.sent.count
+        try await Task.sleep(for: .milliseconds(4050))
+
+        let select = Task { await driver.sendInteractive(.select, request: RemoteInputRequest()) }
+        defer { select.cancel() }
+        await waitUntil { control.sent.count == originalRequestCount + 1 }
+        guard control.sent.count == originalRequestCount + 1 else { return }
+        respondToPointerRequest(control)
+        await select.value
+
+        let pointer = LocalWebSocket.instances.last!
+        #expect(pointer.sent == ["type:button\nname:ENTER\n\n"])
+        #expect(driver.state == .connected)
+    }
+
     @Test func lgBoundsRecoveryRequestsWhenPointerServiceDeclines() async {
         for key in [RemoteKey.home, .right] {
             LocalWebSocket.instances = []

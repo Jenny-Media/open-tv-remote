@@ -248,7 +248,8 @@ final class LGDriver: TVDriver {
         }
         let deliberate = key == .select || key == .back || key == .home
         let deadline = ContinuousClock.now + .seconds(4)
-        var requestedPointer = false
+        enum Acquisition { case notAttempted, waiting, requested }
+        var acquisition = Acquisition.notAttempted
         var discardRecoveryDirection = false
         while state == .connected, socket === controlSocket, request.canDispatch {
             if let pointer {
@@ -259,9 +260,12 @@ final class LGDriver: TVDriver {
                 }
             } else {
                 if !deliberate { discardRecoveryDirection = true }
-                if !requestedPointer {
+                if acquisition != .requested, acquisition != .waiting || !requestingPointer,
+                   ContinuousClock.now < deadline {
+                    let previousRequestID = pointerRequestID
                     openPointerSocket()
-                    requestedPointer = true
+                    // A deliberate press can still replace a request it only joined.
+                    acquisition = deliberate && pointerRequestID == previousRequestID ? .waiting : .requested
                 }
                 // Movement also waits through bounded acquisition, but its
                 // recovery-triggering key is discarded when the channel becomes ready.
