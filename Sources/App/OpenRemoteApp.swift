@@ -40,7 +40,8 @@ struct RootView: View {
             .safeAreaInset(edge: .bottom) { JellyfinStatusBar() }
             #if os(iOS)
             .background {
-                VolumeButtons(isEnabled: scenePhase == .active && model.current != nil) { model.press($0) }
+                VolumeButtons(isEnabled: scenePhase == .active && model.current != nil &&
+                              model.supports(.volumeUp) && model.supports(.volumeDown)) { model.press($0) }
                     .frame(width: 1, height: 1)
             }
             #endif
@@ -118,7 +119,7 @@ private struct Pager: View {
     var body: some View {
         Group {
             if model.remoteControlMode.isGestureMode && (page ?? 0) == 0 {
-                RemoteScreen(usesSystemToolbar: usesSystemToolbar)
+                RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { (page ?? 0) == 0 })
             } else {
                 pages
             }
@@ -141,7 +142,7 @@ private struct Pager: View {
     private var pages: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
-                RemoteScreen(usesSystemToolbar: usesSystemToolbar)
+                RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { (page ?? 0) == 0 })
                     .containerRelativeFrame(.horizontal)
                     .id(0)
                 WatchScreen()

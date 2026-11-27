@@ -16,13 +16,17 @@ final class RokuDriver: TVDriver {
     private(set) var device: TVDevice
     @ObservationIgnored weak var delegate: TVDriverDelegate?
     private(set) var state: ConnectionState = .idle {
-        didSet { if state != oldValue { delegate?.driver(self, didChangeState: state) } }
+        didSet {
+            if oldValue == .connected, state != .connected { availabilityGeneration += 1 }
+            if state != oldValue { delegate?.driver(self, didChangeState: state) }
+        }
     }
 
     private var base: URL { URL(string: "http://\(device.host):8060")! }
     /// Keypresses must arrive in order, so they go through one serial chain.
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var availabilityGeneration = 0
     private var keyCapabilities = KeyCapabilities()
 
     init(device: TVDevice) {
@@ -67,13 +71,13 @@ final class RokuDriver: TVDriver {
 
     func send(_ key: RemoteKey) {
         guard let name = keyName(key) else { return }
-        enqueue("keypress/\(name)")
+        enqueue("keypress/\(name)", key: key)
     }
 
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
         guard state == .connected, !request.isCancelled, !Task.isCancelled,
               let name = keyName(key) else { return }
-        let operation = enqueue("keypress/" + name, request: request)
+        let operation = enqueue("keypress/" + name, key: key, request: request)
         await withTaskCancellationHandler {
             await operation.value
         } onCancel: {
@@ -100,16 +104,20 @@ final class RokuDriver: TVDriver {
     }
 
     @discardableResult
-    private func enqueue(_ path: String, request: RemoteInputRequest? = nil) -> Task<Void, Never> {
+    private func enqueue(_ path: String, key: RemoteKey? = nil, request: RemoteInputRequest? = nil) -> Task<Void, Never> {
         let previous = queue
         let token = generation
+        // An active hold can resume, but a queued repeat belongs to the connection it entered on.
+        let repeatAvailability = request?.requiresCurrentConnection == true ? availabilityGeneration : nil
         // Percent-encoded paths must not be re-encoded by appending(path:).
         let url = URL(string: base.absoluteString + "/" + path)!
         let operation = Task { @MainActor [weak self] in
             await previous?.value
             guard let self, !Task.isCancelled, token == self.generation else { return }
+            if let key, self.keyName(key) == nil { return }
+            if let repeatAvailability, repeatAvailability != self.availabilityGeneration { return }
             if let request {
-                guard !request.isCancelled, self.state == .connected else { return }
+                guard self.state == .connected, request.beginDispatch() else { return }
             }
             let status = await LocalHTTP.post(url, timeout: request == nil ? 3 : 2)
             guard !Task.isCancelled, token == self.generation else { return }

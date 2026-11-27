@@ -150,7 +150,7 @@ final class SamsungDriver: TVDriver {
         await socket.sendAndWait(json: [
             "method": "ms.remote.control",
             "params": ["Cmd": "Click", "DataOfCmd": name, "Option": "false", "TypeOfRemote": "SendRemoteKey"],
-        ])
+        ], beginDispatch: request.beginDispatch)
     }
 
     private func sendKey(_ name: String) { sendKey(name, cmd: "Click") }

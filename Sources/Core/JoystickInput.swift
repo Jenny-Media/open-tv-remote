@@ -57,13 +57,33 @@ final class RemoteInputRequest {
     enum Feedback { case firm, soft, none }
     let isRepeat: Bool
     let feedback: Feedback
+    let requiresCurrentConnection: Bool
     private(set) var isCancelled = false
+    var onDispatch: (() -> Void)?
+    private let deadline: ContinuousClock.Instant?
+    private let isCurrent: () -> Bool
 
-    init(isRepeat: Bool = false, feedback: Feedback = .firm) {
+    init(isRepeat: Bool = false, feedback: Feedback = .firm, requiresCurrentConnection: Bool = false,
+         deadline: ContinuousClock.Instant? = nil,
+         isCurrent: @escaping () -> Bool = { true }) {
         self.isRepeat = isRepeat
         self.feedback = feedback
+        self.requiresCurrentConnection = requiresCurrentConnection
+        self.deadline = deadline
+        self.isCurrent = isCurrent
     }
     func cancel() { isCancelled = true }
+
+    var canDispatch: Bool {
+        !isCancelled && !Task.isCancelled && (deadline.map { ContinuousClock.now < $0 } ?? true) && isCurrent()
+    }
+
+    /// Called once the driver has a transport slot, immediately before sending.
+    func beginDispatch() -> Bool {
+        guard canDispatch else { return false }
+        onDispatch?()
+        return true
+    }
 }
 
 /// One transport operation at a time. Deliberate presses keep their order;

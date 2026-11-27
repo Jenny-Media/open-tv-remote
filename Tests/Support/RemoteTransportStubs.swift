@@ -23,8 +23,12 @@ final class LocalWebSocket {
         let data = try! JSONSerialization.data(withJSONObject: json)
         send(String(decoding: data, as: UTF8.self))
     }
-    func sendAndWait(_ text: String) async {
-        if isReady { sent.append(text) }
+    func sendAndWait(_ text: String, beginDispatch: () -> Bool = { true }) async {
+        if isReady, !Task.isCancelled, beginDispatch() { sent.append(text) }
+    }
+    func sendAndWait(json: [String: Any], beginDispatch: () -> Bool) async {
+        let data = try! JSONSerialization.data(withJSONObject: json)
+        await sendAndWait(String(decoding: data, as: UTF8.self), beginDispatch: beginDispatch)
     }
     func sendReportingResult(_ text: String) async -> Bool {
         guard isReady, sendSucceeds else { return false }

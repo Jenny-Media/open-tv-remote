@@ -113,6 +113,17 @@ final class JoystickUITests: XCTestCase {
         }
     }
 
+    func testBookPlaybackStopsWhenTheTouchLeavesTheButton() throws {
+        try requireDuoPosture("book")
+        launch()
+        let forward = app.buttons["Fast forward"]
+        XCTAssertTrue(forward.waitForExistence(timeout: 5))
+        let center = forward.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let outside = forward.coordinate(withNormalizedOffset: CGVector(dx: -0.35, dy: 0.5))
+        center.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.7)
+        XCTAssertEqual(log.label, "1:Fast forward")
+    }
+
     func testNarrowBookKeyboardActionsRemainReachableAfterSwappingSides() throws {
         try requireDuoPosture("book")
         launch(openMode: false, additionalArguments: ["-padMode", "keyboard", "-demoKeyboardWidth", "164"])
@@ -135,9 +146,35 @@ final class JoystickUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(button.frame.width, 44)
             XCTAssertEqual(button.frame.midY, enter.frame.midY, accuracy: 2)
         }
+        let keys = ["q", "w"]
+        for key in keys {
+            let button = app.buttons[key]
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            button.tap()
+        }
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "2:w")
         clear.tap()
         delete.tap()
         enter.tap()
+    }
+
+    func testBookKeyboardDeleteUsesCancellableRepeats() throws {
+        try requireDuoPosture("book")
+        launch(openMode: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoKeyboardWidth", "164", "-demoInteractiveDelayMS", "900",
+        ])
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        for key in ["q", "w", "e"] { app.buttons[key].tap() }
+        let padLog = app.staticTexts["demoPadInputLog"]
+        XCTAssertEqual(padLog.label, "3:e")
+        assertDelayedHoldSendsOneRepeat(log: padLog, key: "Delete", expectedCount: 5) {
+            delete.press(forDuration: 1)
+        }
+        app.buttons["Clear"].tap()
+        XCTAssertEqual(padLog.label, "6:Delete")
     }
 
     func testTabletopKeypadMediaHoldUsesCancellableRepeats() throws {
@@ -151,10 +188,10 @@ final class JoystickUITests: XCTestCase {
         }
     }
 
-    private func assertDelayedHoldSendsOneRepeat(log: XCUIElement, key: String, hold: () -> Void) {
+    private func assertDelayedHoldSendsOneRepeat(log: XCUIElement, key: String, expectedCount: Int = 2, hold: () -> Void) {
         XCTAssertTrue(log.waitForExistence(timeout: 5))
         hold()
-        let expected = "2:\(key)"
+        let expected = "\(expectedCount):\(key)"
         XCTAssertEqual(log.label, expected)
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             log.label != expected
@@ -165,13 +202,15 @@ final class JoystickUITests: XCTestCase {
 
     func testTabletopShowsTVStatusAboveTheRemoteAndPlayback() throws {
         try requireDuoPosture("tabletop")
-        launch(additionalArguments: ["-demoForegroundApp", "YouTube"])
+        launch(additionalArguments: ["-demoForegroundAppPackage", "com.google.android.youtube.tv"])
         let tv = app.buttons["tabletopTVSelection"]
         XCTAssertTrue(tv.waitForExistence(timeout: 5))
 
         XCTAssertTrue(tv.label.contains("Living Room TV"))
         XCTAssertTrue(tv.label.contains("Connected"))
-        XCTAssertTrue(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.isHittable)
+        let reportedApp = app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch
+        XCTAssertTrue(reportedApp.isHittable)
+        XCTAssertEqual(reportedApp.label, "Last reported app, YouTube")
         let play = app.buttons["Play or pause"]
         let volume = app.buttons["Volume down"]
         XCTAssertTrue(play.isHittable)

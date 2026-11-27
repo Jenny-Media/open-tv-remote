@@ -149,11 +149,16 @@ final class LGDriver: TVDriver {
     @discardableResult
     private func request(_ uri: String, _ payload: [String: Any] = [:], completion: (([String: Any]) -> Void)? = nil) -> String? {
         guard let socket else { return nil }
+        let (id, message) = requestMessage(uri, payload)
+        if let completion { callbacks[id] = completion }
+        socket.send(json: message)
+        return id
+    }
+
+    private func requestMessage(_ uri: String, _ payload: [String: Any]) -> (String, [String: Any]) {
         let id = "req_\(nextID)"
         nextID += 1
-        if let completion { callbacks[id] = completion }
-        socket.send(json: ["type": "request", "id": id, "uri": uri, "payload": payload])
-        return id
+        return (id, ["type": "request", "id": id, "uri": uri, "payload": payload])
     }
 
     private func invalidatePointerChannel() {
@@ -228,17 +233,28 @@ final class LGDriver: TVDriver {
     }
 
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
-        guard state == .connected, !request.isCancelled, !Task.isCancelled,
-              let name = Self.buttonName(key), let controlSocket = socket else { return }
+        guard state == .connected, request.canDispatch, let controlSocket = socket else { return }
+        if key == .backspace {
+            let (_, message) = requestMessage("ssap://com.webos.service.ime/deleteCharacters", ["count": 1])
+            await controlSocket.sendAndWait(json: message, beginDispatch: request.beginDispatch)
+            return
+        }
+        guard let name = Self.buttonName(key) else { return }
+        // The cap's initial tap can recover the pointer. Repeats use a ready socket only.
+        if request.requiresCurrentConnection {
+            guard let pointer, pointer.isReady else { return }
+            await pointer.sendAndWait("type:button\nname:\(name)\n\n", beginDispatch: request.beginDispatch)
+            return
+        }
         let deliberate = key == .select || key == .back || key == .home
         let deadline = ContinuousClock.now + .seconds(4)
         var requestedPointer = false
         var discardRecoveryDirection = false
-        while state == .connected, socket === controlSocket, !request.isCancelled, !Task.isCancelled {
+        while state == .connected, socket === controlSocket, request.canDispatch {
             if let pointer {
                 if pointer.isReady {
                     guard !discardRecoveryDirection else { return }
-                    await pointer.sendAndWait("type:button\nname:\(name)\n\n")
+                    await pointer.sendAndWait("type:button\nname:\(name)\n\n", beginDispatch: request.beginDispatch)
                     return
                 }
             } else {

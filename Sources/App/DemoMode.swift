@@ -30,6 +30,7 @@ final class DemoDriver: TVDriver {
     func supports(_ key: RemoteKey) -> Bool { true }
     func send(_ key: RemoteKey) {}
     func sendInteractive(_ key: RemoteKey, request: RemoteInputRequest) async {
+        guard request.beginDispatch() else { return }
         let delay = UserDefaults.standard.integer(forKey: "demoInteractiveDelayMS")
         if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
     }
@@ -50,7 +51,7 @@ enum DemoMode {
     }
 
     static var sheet: String? { UserDefaults.standard.string(forKey: "demoSheet") }
-    static var foregroundAppName: String? { UserDefaults.standard.string(forKey: "demoForegroundApp") }
+    static var foregroundAppPackage: String? { UserDefaults.standard.string(forKey: "demoForegroundAppPackage") }
     static var keyboardTestWidth: CGFloat? {
         let width = UserDefaults.standard.double(forKey: "demoKeyboardWidth")
         return isEnabled && width > 0 ? CGFloat(width) : nil

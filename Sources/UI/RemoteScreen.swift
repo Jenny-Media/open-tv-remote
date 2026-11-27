@@ -3,6 +3,7 @@ import SwiftUI
 struct RemoteScreen: View {
     @Environment(AppModel.self) private var model
     var usesSystemToolbar = false
+    var pageIsActive: () -> Bool = { true }
     private var mode: PadMode {
         switch model.remoteControlMode {
         case .keyboard: .keyboard
@@ -17,6 +18,8 @@ struct RemoteScreen: View {
     #endif
 
     var body: some View {
+        let controlMode = model.remoteControlMode
+        let deviceID = model.currentID
         Group {
             #if os(iOS)
             adaptiveRemote
@@ -24,6 +27,10 @@ struct RemoteScreen: View {
             remote(showHeader: true, tabletop: false)
             #endif
         }
+        .environment(\.remoteRepeatIsCurrent, {
+            model.remoteControlMode == controlMode && model.currentID == deviceID && pageIsActive() &&
+                model.remoteCommandsAvailable && !model.isConnectionPaused
+        })
         .background(Theme.background.ignoresSafeArea())
         .focusable()
         .focusEffectDisabled()
@@ -44,7 +51,7 @@ struct RemoteScreen: View {
             let layout = windowLayout(in: geometry)
             let tabletop = layout.arrangement == .tabletop
             let book = layout.arrangement == .book
-            let wide = usesSystemToolbar && layout.hasWideFlatSurface
+            let wide = UIDevice.current.userInterfaceIdiom == .phone && usesSystemToolbar && layout.hasWideFlatSurface
 
             ZStack {
                 HStack(alignment: .top, spacing: 0) {
@@ -106,6 +113,7 @@ struct RemoteScreen: View {
                     }
                 }
                 DuoQuickControls(showsInput: true)
+                    .id(model.remoteControlMode)
                 Button {
                     Haptics.tap()
                     bookRemoteOnRight.toggle()
@@ -132,11 +140,11 @@ struct RemoteScreen: View {
                 VStack(spacing: 12) {
                     TVSelectionButton(prominent: true)
                         .accessibilityIdentifier("tabletopTVSelection")
-                    if let appName = model.foregroundAppName {
-                        Label(appName, systemImage: "play.tv")
-                            .font(.headline)
+                    if let appName = model.lastReportedAppName {
+                        Label("Last reported app · \(appName)", systemImage: "play.tv")
+                            .font(.subheadline)
                             .foregroundStyle(Theme.secondary)
-                            .accessibilityLabel("Active app, \(appName)")
+                            .accessibilityLabel("Last reported app, \(appName)")
                             .accessibilityIdentifier("tabletopForegroundApp")
                     }
                     StatusBanner()

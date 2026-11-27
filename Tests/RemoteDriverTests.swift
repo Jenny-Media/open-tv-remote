@@ -108,6 +108,29 @@ struct RemoteDriverTests {
         driver.disconnect()
     }
 
+    @Test func rokuDropsVolumeQueuedBeforeDeviceInfoReportsItUnsupported() async {
+        let driver = await connectedRoku(isTV: false, playerVolume: true)
+        LocalHTTP.delaysDeviceInfo = true
+        LocalHTTP.deviceInfo = Data("<device-info><is-tv>false</is-tv><supports-audio-volume-control>false</supports-audio-volume-control></device-info>".utf8)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.connect()
+        await waitUntil { LocalHTTP.deviceInfoRequest != nil }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        #expect(driver.supports(.mute))
+        driver.send(.mute)
+        driver.send(.back)
+        LocalHTTP.completeDeviceInfo()
+        await waitUntil { !driver.supports(.mute) }
+        LocalHTTP.complete("/keypress/Home")
+        await waitUntil { LocalHTTP.started.count == 2 }
+        #expect(LocalHTTP.started == ["/keypress/Home", "/keypress/Back"])
+        LocalHTTP.complete("/keypress/Back")
+    }
+
     @Test func rokuReportsTimeoutAfterDirectionalLift() async {
         let driver = await connectedRoku()
         let sender = JoystickSender(send: { key, request in
@@ -183,6 +206,149 @@ struct RemoteDriverTests {
         LocalHTTP.complete("/keypress/Back")
         await interactive.value
         #expect(LocalHTTP.completions.isEmpty)
+    }
+
+    @Test func rokuOnlyAccountsForDeleteAtActualDispatch() async {
+        let driver = await connectedRoku(isTV: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        var dispatched = 0
+        let queued = RemoteInputRequest()
+        queued.onDispatch = { dispatched += 1 }
+        let staleOperation = Task { await driver.sendInteractive(.backspace, request: queued) }
+        await Task.yield()
+        queued.cancel()
+        LocalHTTP.complete("/keypress/Home")
+        await staleOperation.value
+        #expect(dispatched == 0)
+        #expect(LocalHTTP.started == ["/keypress/Home"])
+
+        let active = RemoteInputRequest()
+        active.onDispatch = { dispatched += 1 }
+        let operation = Task { await driver.sendInteractive(.backspace, request: active) }
+        await waitUntil { LocalHTTP.started.last == "/keypress/Backspace" }
+        #expect(dispatched == 1)
+        active.cancel()
+        LocalHTTP.complete("/keypress/Backspace")
+        await operation.value
+        #expect(dispatched == 1)
+    }
+
+    @Test func rokuFinishesTheDispatchedRepeatBeforeTheNextDeliberateCommand() async {
+        let driver = await connectedRoku(isTV: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        let request = RemoteInputRequest(isRepeat: true)
+        let repeatOperation = Task { await driver.sendInteractive(.backspace, request: request) }
+        await waitUntil { LocalHTTP.started == ["/keypress/Backspace"] }
+        request.cancel()
+        driver.send(.back)
+        await Task.yield()
+        #expect(LocalHTTP.started == ["/keypress/Backspace"])
+        LocalHTTP.complete("/keypress/Backspace", status: 403)
+        await repeatOperation.value
+        if case .failed(let message) = driver.state {
+            #expect(message.contains("blocking remote apps"))
+        } else { Issue.record("Lift suppressed the accepted command's HTTP response") }
+        await waitUntil { LocalHTTP.started == ["/keypress/Backspace", "/keypress/Back"] }
+        LocalHTTP.complete("/keypress/Back")
+    }
+
+    @Test func rokuDropsARepeatWhenItsRemoteContextChangesWhileQueued() async {
+        let driver = await connectedRoku(isTV: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        var isCurrent = true
+        let request = RemoteInputRequest(isRepeat: true, isCurrent: { isCurrent })
+        let repeatOperation = Task { await driver.sendInteractive(.fastForward, request: request) }
+        await Task.yield()
+        isCurrent = false
+        LocalHTTP.complete("/keypress/Home")
+        await repeatOperation.value
+        #expect(LocalHTTP.started == ["/keypress/Home"])
+    }
+
+    @Test func rokuDropsAQueuedRepeatWhenAppsSheetOpens() async {
+        let driver = await connectedRoku(isTV: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        var availability = RemoteInputAvailability(state: .connected)
+        let request = RemoteInputRequest(isRepeat: true, isCurrent: { availability.allowsCommands })
+        let repeatOperation = Task { await driver.sendInteractive(.backspace, request: request) }
+        await Task.yield()
+        availability.showingApps = true
+        LocalHTTP.complete("/keypress/Home")
+        await repeatOperation.value
+        #expect(LocalHTTP.started == ["/keypress/Home"])
+    }
+
+    @Test func rokuDropsAQueuedRepeatAfterItsHoldDeadline() async {
+        let driver = await connectedRoku(isTV: false)
+        defer {
+            driver.disconnect()
+            LocalHTTP.reset()
+        }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        let deadline = ContinuousClock.now + .milliseconds(50)
+        let request = RemoteInputRequest(isRepeat: true, deadline: deadline)
+        let repeatOperation = Task { await driver.sendInteractive(.fastForward, request: request) }
+        try? await ContinuousClock().sleep(until: deadline)
+        #expect(!request.canDispatch)
+        driver.send(.back)
+        LocalHTTP.complete("/keypress/Home")
+        await waitUntil { LocalHTTP.started.count == 2 }
+        #expect(LocalHTTP.started == ["/keypress/Home", "/keypress/Back"])
+        if let started = LocalHTTP.started.last { LocalHTTP.complete(started) }
+        await repeatOperation.value
+    }
+
+    @Test func rokuDiscardsAQueuedDuoRepeatAcrossConnectionLossAndAllowsTheNextTick() async {
+        let driver = await connectedRoku()
+        defer { driver.disconnect() }
+        driver.send(.home)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home"] }
+        driver.send(.back)
+
+        let request = RemoteInputRequest(isRepeat: true, requiresCurrentConnection: true)
+        var repeatStarted = false
+        var repeatFinished = false
+        let stale = Task {
+            repeatStarted = true
+            await driver.sendInteractive(.fastForward, request: request)
+            repeatFinished = true
+        }
+        await waitUntil { repeatStarted }
+        LocalHTTP.complete("/keypress/Home", status: nil)
+        await waitUntil { LocalHTTP.started == ["/keypress/Home", "/keypress/Back"] }
+        #expect(driver.state == .failed("Couldn't reach the Roku."))
+        LocalHTTP.complete("/keypress/Back")
+        await waitUntil { repeatFinished || LocalHTTP.started.count > 2 }
+        #expect(LocalHTTP.started == ["/keypress/Home", "/keypress/Back"])
+        LocalHTTP.complete("/keypress/Fwd")
+        await stale.value
+        #expect(driver.state == .connected)
+
+        let priorCount = LocalHTTP.started.count
+        let fresh = Task { await driver.sendInteractive(.fastForward, request: request) }
+        await waitUntil { LocalHTTP.started.count > priorCount }
+        LocalHTTP.complete("/keypress/Fwd")
+        await fresh.value
+        #expect(LocalHTTP.started == ["/keypress/Home", "/keypress/Back", "/keypress/Fwd"])
     }
 
     @Test func rokuDropsReleasedJoystickInputWaitingBehindNormalCommands() async {
@@ -288,6 +454,23 @@ struct RemoteDriverTests {
         let request = JSON.parse(control.sent.last!)!
         let id = request["id"] as! String
         control.onText?("{\"id\":\"\(id)\",\"payload\":{\"socketPath\":\"ws://192.0.2.20/pointer\"}}")
+    }
+
+    @Test func lgInteractiveDeleteUsesTheControlSocketAndHonorsCancellation() async {
+        let (driver, control, pointer) = connectLG()
+        defer { driver.disconnect() }
+        let initialCount = control.sent.count
+        let cancelled = RemoteInputRequest()
+        cancelled.cancel()
+        await driver.sendInteractive(.backspace, request: cancelled)
+        #expect(control.sent.count == initialCount)
+
+        await driver.sendInteractive(.backspace, request: RemoteInputRequest())
+        #expect(control.sent.count == initialCount + 1)
+        let message = control.sent.last.flatMap(JSON.parse)
+        #expect(message?["uri"] as? String == "ssap://com.webos.service.ime/deleteCharacters")
+        #expect((message?["payload"] as? [String: Int])?["count"] == 1)
+        #expect(pointer.sent.isEmpty)
     }
 
     @Test func lgCursorUsesPointerPacketsRatherThanDirectionalKeys() async {
@@ -587,6 +770,23 @@ struct RemoteDriverTests {
         #expect(!control.isReady)
         #expect(control.sent.count == before) // No duplicate acquisition requests.
         #expect(LocalWebSocket.instances.count == 1)
+    }
+
+    @Test(arguments: [RemoteKey.volumeUp, .right])
+    func lgButtonRepeatTimeoutPreservesPrimaryControl(_ key: RemoteKey) async {
+        LocalWebSocket.delayedOpenPaths = ["/pointer"]
+        defer { LocalWebSocket.delayedOpenPaths = [] }
+        let (driver, control, pointer) = connectLG()
+        defer { driver.disconnect() }
+
+        await driver.sendInteractive(key, request: RemoteInputRequest(isRepeat: true, requiresCurrentConnection: true))
+        #expect(driver.state == .connected)
+        #expect(control.isReady)
+        #expect(pointer.sent.isEmpty)
+
+        driver.sendText("A")
+        let message = control.sent.last.flatMap(JSON.parse)
+        #expect(message?["uri"] as? String == "ssap://com.webos.service.ime/insertText")
     }
 
     @Test func lgMissingPointerCancellationStaysQuietAndDoesNotReplayDirection() async {

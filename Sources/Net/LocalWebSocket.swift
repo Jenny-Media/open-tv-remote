@@ -33,21 +33,21 @@ final class LocalWebSocket {
         send(String(decoding: data, as: UTF8.self))
     }
 
-    func sendAndWait(_ text: String) async {
-        _ = await sendReportingResult(text)
+    func sendAndWait(_ text: String, beginDispatch: () -> Bool = { true }) async {
+        _ = await sendReportingResult(text, beginDispatch: beginDispatch)
     }
 
-    func sendReportingResult(_ text: String) async -> Bool {
-        guard isReady, !closed, !Task.isCancelled else { return false }
+    func sendReportingResult(_ text: String, beginDispatch: () -> Bool = { true }) async -> Bool {
+        guard isReady, !closed, !Task.isCancelled, beginDispatch() else { return false }
         do {
             try await task.send(.string(text))
             return !closed
         } catch { return false }
     }
 
-    func sendAndWait(json: [String: Any]) async {
+    func sendAndWait(json: [String: Any], beginDispatch: () -> Bool) async {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        await sendAndWait(String(decoding: data, as: UTF8.self))
+        await sendAndWait(String(decoding: data, as: UTF8.self), beginDispatch: beginDispatch)
     }
 
     func close() {

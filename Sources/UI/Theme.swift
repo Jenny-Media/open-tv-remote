@@ -102,11 +102,14 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
-    /// GestureState resets itself when the system cancels a touch (calls, Control Center,
-    /// a sheet appearing) — unlike onEnded, which never fires in that case.
-    @GestureState private var pressed = false
+    private enum DragPress { case idle, inside, exited }
+
+    /// GestureState resets even when the system cancels a touch without calling onEnded.
+    @GestureState private var dragPress = DragPress.idle
+    @State private var hitSize = CGSize.zero
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.remoteRepeatIsCurrent) private var remoteRepeatIsCurrent
     @State private var repeatTask: Task<Void, Never>?
     @State private var repeatRequest: RemoteInputRequest?
     @State private var held = false
@@ -145,18 +148,27 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     private var dragInteraction: some View {
-        face(pressed: pressed)
+        face(pressed: dragPress == .inside)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { hitSize = $0 }
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .updating($pressed) { _, state, _ in state = true }
+                    .updating($dragPress) { value, state, _ in
+                        guard state != .exited else { return }
+                        let bounds = CGRect(origin: .zero, size: hitSize)
+                        if repeatAction != nil, !shape.path(in: bounds).contains(value.location) {
+                            state = .exited
+                        } else {
+                            state = .inside
+                        }
+                    }
                     // A cancelled drag never turns into a tap.
                     .onEnded { _ in
                         if holdAction != nil && !held { fire() }
                     }
             )
-            .onChange(of: pressed) { _, isPressed in
+            .onChange(of: dragPress == .inside) { _, isPressed in
                 stopRepeating()
-                guard isPressed else { return }
+                guard isPressed, isEnabled else { return }
                 if let holdAction {
                     held = false
                     repeatTask = Task { @MainActor in
@@ -191,19 +203,25 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     private func fire() {
+        guard isEnabled else { return }
         Haptics.tap()
         action()
     }
 
     private func startRepeating() {
-        let request = repeatAction.map { _ in RemoteInputRequest(isRepeat: true, feedback: .soft) }
+        let isCurrent = remoteRepeatIsCurrent
+        let deadline = ContinuousClock.now + .seconds(8)
+        let request = repeatAction.map { _ in
+            RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
+                               deadline: deadline, isCurrent: isCurrent)
+        }
         repeatRequest = request
         repeatTask = Task { @MainActor in
-            let deadline = ContinuousClock.now + .seconds(8)
             try? await Task.sleep(for: .milliseconds(420))
             // Belt and braces: never auto-repeat for more than ~8 seconds.
             for _ in 0..<70 {
-                guard !Task.isCancelled, request?.isCancelled != true, ContinuousClock.now < deadline else { return }
+                guard !Task.isCancelled, request?.canDispatch != false,
+                      ContinuousClock.now < deadline else { return }
                 if let repeatAction, let request {
                     await repeatAction(request)
                 } else {
@@ -215,9 +233,13 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     private func stopRepeating() {
-        repeatRequest?.cancel()
+        if let repeatRequest {
+            // Let an already-dispatched command finish so its response and place in the queue survive lift.
+            repeatRequest.cancel()
+        } else {
+            repeatTask?.cancel()
+        }
         repeatRequest = nil
-        repeatTask?.cancel()
         repeatTask = nil
     }
 }
@@ -336,10 +358,19 @@ private struct CancellableRemoteRepeatsKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct RemoteRepeatIsCurrentKey: EnvironmentKey {
+    static let defaultValue: () -> Bool = { true }
+}
+
 extension EnvironmentValues {
     var cancellableRemoteRepeats: Bool {
         get { self[CancellableRemoteRepeatsKey.self] }
         set { self[CancellableRemoteRepeatsKey.self] = newValue }
+    }
+
+    var remoteRepeatIsCurrent: () -> Bool {
+        get { self[RemoteRepeatIsCurrentKey.self] }
+        set { self[RemoteRepeatIsCurrentKey.self] = newValue }
     }
 }
 
@@ -348,10 +379,12 @@ extension AppModel {
         guard enabled else { return nil }
         let deviceID = currentID
         return { request in
-            guard self.currentID == deviceID, self.remoteInputAvailable, self.supports(key) else {
+            guard request.canDispatch, self.currentID == deviceID, self.remoteCommandsAvailable,
+                  !self.isConnectionPaused, self.supports(key) else {
                 request.cancel()
                 return
             }
+            guard self.remoteInputAvailable else { return }
             Haptics.tick()
             await self.pressInteractively(key, request: request)
         }

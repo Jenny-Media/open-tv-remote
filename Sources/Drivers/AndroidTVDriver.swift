@@ -305,7 +305,7 @@ final class AndroidTVDriver: TVDriver {
             key.uint(1, UInt64(code))
             key.uint(2, 3)
         }
-        await remote.sendAndWait(message)
+        await remote.sendAndWait(message, beginDispatch: request.beginDispatch)
     }
 
     func sendText(_ text: String) {
