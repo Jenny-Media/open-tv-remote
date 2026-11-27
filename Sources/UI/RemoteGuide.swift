@@ -14,11 +14,19 @@ struct RemoteGuide: View {
                          text: "Drag to move the pointer and tap to click. Use the strip beside the pad to scroll.")
             }
             guideRow("Open a TV app", symbol: "square.grid.2x2",
-                     text: "Open TV Apps and choose an app to launch on your TV.")
+                     text: tvAppsInstructions)
         }
         .navigationTitle("How to use the remote")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var tvAppsInstructions: String {
+        #if os(macOS)
+        "Open the Watch tab and click All apps. If the tab is hidden, switch to Directional pad first."
+        #else
+        "Open TV Apps and choose an app to launch on your TV."
         #endif
     }
 
