@@ -207,7 +207,7 @@ struct RemoteScreen: View {
         .environment(\.cancellableRemoteRepeats, book || tabletop || wide)
         #if DEBUG
         .overlay(alignment: .bottomTrailing) {
-            if DemoMode.isEnabled, !model.remoteControlMode.isGestureMode,
+            if DemoMode.isEnabled, model.remoteControlMode != .eyesFree,
                UserDefaults.standard.bool(forKey: "demoInputLog") {
                 Text("\(model.demoInputCount):\(model.demoLastInput)")
                     .font(.caption.monospaced())

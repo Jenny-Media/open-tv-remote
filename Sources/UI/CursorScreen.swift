@@ -113,14 +113,18 @@ private struct CursorControls: View {
         .onDisappear { sender.stop() }
         .sheet(isPresented: $showingCursorSettings) {
             NavigationStack {
-                Form { preferences }
-                    .formStyle(.grouped)
-                    .navigationTitle("Cursor Settings")
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingCursorSettings = false }
-                        }
+                Form {
+                    Section { preferences } footer: {
+                        if tabletop { Text(scrollHint) }
                     }
+                }
+                .formStyle(.grouped)
+                .navigationTitle("Cursor Settings")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingCursorSettings = false }
+                    }
+                }
             }
             #if os(macOS)
             .frame(minWidth: 350, minHeight: 210)
@@ -221,6 +225,10 @@ private struct CursorControls: View {
     private var status: String {
         if !enabled { return "Choose or reconnect to your TV above." }
         if sender.unavailable { return "Cursor not ready. Try again, or reconnect above." }
+        return scrollHint
+    }
+
+    private var scrollHint: String {
         #if os(iOS)
         return "Scroll with two fingers or the side strip"
         #else

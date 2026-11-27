@@ -305,6 +305,7 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(settings.isHittable)
         settings.tap()
         XCTAssertTrue(app.navigationBars["Cursor Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Scroll with two fingers or the side strip"].exists)
     }
 
     func testFoldedVolumeControlsInPortraitAndLandscape() throws {
@@ -316,34 +317,48 @@ final class JoystickUITests: XCTestCase {
         }
         for orientation: UIDeviceOrientation in [.portrait, .landscapeRight] {
             device.orientation = orientation
-            try assertVolumeControlsInGestureModes()
+            try assertVolumeControlsInGestureModes(isLandscape: orientation.isLandscape)
         }
     }
 
     func testFlatLandscapeVolumeControlsInGestureModes() throws {
         try requireDuoPosture("flat-landscape")
-        try assertVolumeControlsInGestureModes()
+        try assertVolumeControlsInGestureModes(isLandscape: true)
     }
 
-    private func assertVolumeControlsInGestureModes() throws {
-        XCTAssertNotNil(UIImage(systemName: "speaker.plus"))
-        XCTAssertNotNil(UIImage(systemName: "speaker.minus"))
+    private func assertVolumeControlsInGestureModes(isLandscape: Bool) throws {
         launch()
-        let increase = app.buttons["Volume up"]
-        let decrease = app.buttons["Volume down"]
-        XCTAssertTrue(increase.isHittable)
-        XCTAssertTrue(decrease.isHittable)
-        increase.tap()
-        XCTAssertEqual(log.label, "1:Volume up")
-        decrease.tap()
-        XCTAssertEqual(log.label, "2:Volume down")
+        try assertVolumeControls(inputLog: log, isLandscape: isLandscape)
         app.terminate()
 
         launch(openMode: false, additionalArguments: ["-demoLGCursor", "YES", "-padMode", "cursor"])
         XCTAssertTrue(app.descendants(matching: .any)["lgCursorTouchpad"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Volume up"].isHittable)
-        XCTAssertTrue(app.buttons["Volume down"].isHittable)
+        try assertVolumeControls(inputLog: app.staticTexts["demoPadInputLog"], isLandscape: isLandscape)
         app.terminate()
+    }
+
+    private func assertVolumeControls(inputLog: XCUIElement, isLandscape: Bool) throws {
+        let expectedLayout = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return !frame.isEmpty && (isLandscape ? frame.width > frame.height : frame.height > frame.width)
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expectedLayout], timeout: 5), .completed)
+        let increase = app.buttons["Volume up"]
+        let decrease = app.buttons["Volume down"]
+        for button in [increase, decrease] {
+            XCTAssertTrue(button.isHittable)
+            let capture = button.screenshot().image
+            let bounds = try XCTUnwrap(coloredBounds(in: capture) { red, green, blue in
+                green > 120 && Int(green) - Int(red) > 32 && Int(green) - Int(blue) > 18
+            }, "Missing visible volume glyph on \(button.label)")
+            let aspect = bounds.width * capture.size.width / (bounds.height * capture.size.height)
+            // The speaker extends the plus horizontally and adds height to the minus.
+            XCTAssertTrue((1.25...2.8).contains(aspect), "Expected a speaker glyph on \(button.label); aspect was \(aspect)")
+        }
+        increase.tap()
+        XCTAssertEqual(inputLog.label, "1:Volume up")
+        decrease.tap()
+        XCTAssertEqual(inputLog.label, "2:Volume down")
     }
 
     func testFlatLandscapeEnlargesTheDirectionalPad() throws {
@@ -477,8 +492,12 @@ final class JoystickUITests: XCTestCase {
         add(screenshot)
     }
 
-    /// Returns the fixture's visible bounds as fractions of the captured tile.
     private func blueArtworkBounds(in capture: UIImage) -> CGRect? {
+        coloredBounds(in: capture) { $0 < 70 && $1 < 100 && $2 > 180 }
+    }
+
+    /// Returns the bounds of matching pixels as fractions of the captured image.
+    private func coloredBounds(in capture: UIImage, matching: (UInt8, UInt8, UInt8) -> Bool) -> CGRect? {
         // Draw through UIImage so orientation metadata is applied before measuring pixels.
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -503,7 +522,7 @@ final class JoystickUITests: XCTestCase {
             for y in 0..<height {
                 for x in 0..<width {
                     let offset = y * stride + x * 4
-                    guard bytes[offset] < 70, bytes[offset + 1] < 100, bytes[offset + 2] > 180 else { continue }
+                    guard matching(bytes[offset], bytes[offset + 1], bytes[offset + 2]) else { continue }
                     minX = min(minX, x)
                     minY = min(minY, y)
                     maxX = max(maxX, x)
