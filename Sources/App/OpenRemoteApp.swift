@@ -38,8 +38,9 @@ struct RootView: View {
 
     init() {
         #if DEBUG
-        if let profile = DemoMode.guideTestProfile {
-            _firstGuideState = AppStorage(wrappedValue: .pending, "demoRemoteGuide.\(profile.uuidString)")
+        if DemoMode.isEnabled {
+            let profile = DemoMode.guideTestProfile?.uuidString ?? "default"
+            _firstGuideState = AppStorage(wrappedValue: .unclassified, "demoRemoteGuide.\(profile)")
             return
         }
         #endif
@@ -101,7 +102,7 @@ struct RootView: View {
             }
             .task {
                 if firstGuideState == .unclassified {
-                    firstGuideState = model.devices.isEmpty ? .pending : .handled
+                    firstGuideState = model.hadLocalPairingAtLaunch ? .handled : .pending
                 }
                 if scenePhase == .active { model.sceneDidBecomeActive() }
                 if model.devices.isEmpty { model.showingDevices = true }

@@ -24,7 +24,11 @@ final class DemoDriver: TVDriver {
     func pair() { state = .pairing(.enterCode(length: 6, error: nil)) }
     func submitPairingCode(_ code: String) {
         guard case .pairing(.enterCode) = state else { return }
-        state = .pairing(.enterCode(length: 6, error: "Incorrect pairing code."))
+        if DemoMode.guideTestProfile != nil, code == "123456" {
+            state = .connected
+        } else {
+            state = .pairing(.enterCode(length: 6, error: "Incorrect pairing code."))
+        }
     }
     func disconnect() {}
     func supports(_ key: RemoteKey) -> Bool { true }

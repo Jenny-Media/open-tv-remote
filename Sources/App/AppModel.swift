@@ -4,7 +4,8 @@ import Observation
 @MainActor
 @Observable
 final class AppModel: TVDriverDelegate {
-    private(set) var devices: [TVDevice] = DeviceStore.load()
+    private(set) var devices: [TVDevice]
+    let hadLocalPairingAtLaunch: Bool
     private(set) var currentID: String? = DeviceStore.currentID
     private(set) var state: ConnectionState = .idle
     private(set) var supportsCursor = false
@@ -91,6 +92,7 @@ final class AppModel: TVDriverDelegate {
     init() {
         #if DEBUG
         if DemoMode.isEnabled {
+            hadLocalPairingAtLaunch = DemoMode.guideTestProfile == nil
             devices = DemoMode.devices
             let device = devices[0]
             currentID = device.id
@@ -113,6 +115,10 @@ final class AppModel: TVDriverDelegate {
             return
         }
         #endif
+        let localDevices = DeviceStore.load()
+        devices = localDevices
+        // Roku needs no pairing. A saved Roku alone is no evidence of a local connection.
+        hadLocalPairingAtLaunch = localDevices.contains { $0.brand != .roku && $0.hasCredentials }
         #if os(iOS)
         NotificationCenter.default.addObserver(forName: RemoteActivityPersistence.actionNotification, object: nil, queue: .main) { [weak self] note in
             guard let event = note.object as? RemoteActivityActionEvent else { return }

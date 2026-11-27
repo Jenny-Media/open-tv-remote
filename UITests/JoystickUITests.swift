@@ -24,13 +24,21 @@ final class JoystickUITests: XCTestCase {
     private var stick: XCUIElement { app.descendants(matching: .any).matching(identifier: "eyesFreeStick").firstMatch }
     private var count: Int { Int(log.label.split(separator: ":").first ?? "-1") ?? -1 }
 
-    func testFirstRemoteGuideCanBeSkippedAndOpenedFromSettings() {
+    func testFirstRemoteGuideAfterPairingASavedTVCanBeSkippedAndReopened() {
         let arguments = ["-demoGuideTestProfile", UUID().uuidString]
-        launch(additionalArguments: arguments)
+        launch(openMode: false, additionalArguments: arguments + ["-demoUnpaired", "YES"])
         let offer = app.buttons["firstRemoteGuide"]
+        let pair = app.buttons["Pair"]
+        XCTAssertTrue(pair.waitForExistence(timeout: 5))
+        XCTAssertFalse(offer.exists)
+        pair.tap()
+        let code = app.textFields["Pairing code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 5))
+        code.typeText("123456")
         XCTAssertTrue(offer.waitForExistence(timeout: 5))
         app.buttons["skipRemoteGuide"].tap()
         XCTAssertTrue(offer.waitForNonExistence(timeout: 5))
+        selectMode("eyesFree", title: "Eyes-free")
         XCTAssertTrue(app.staticTexts["Drag to move · Tap for OK"].exists)
 
         app.terminate()

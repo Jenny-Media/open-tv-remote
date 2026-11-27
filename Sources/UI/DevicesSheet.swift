@@ -11,7 +11,7 @@ struct DevicesSheet: View {
                 if model.devices.isEmpty && !model.discovery.localNetworkDenied {
                     Section {
                         Label {
-                            Text("Turn on your TV and connect it and this device to the same Wi-Fi. Allow local network access so the app can find your TV.")
+                            Text("Turn on your TV and connect both devices to the same local network. Allow local network access so the app can find your TV.")
                                 .font(.subheadline)
                         } icon: {
                             Image(systemName: "wifi")
@@ -48,7 +48,7 @@ struct DevicesSheet: View {
                             Label("Local network access is off", systemImage: "wifi.exclamationmark")
                                 .font(.headline)
                                 .foregroundStyle(.orange)
-                            Text("Just a TV Remote needs it to find and control TVs on your Wi-Fi. Turn on Local Network for Just a TV Remote in Settings → Privacy & Security → Local Network.")
+                            Text("Just a TV Remote needs it to find and control TVs on your local network. Turn on Local Network for Just a TV Remote in Settings → Privacy & Security → Local Network.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                             #if os(iOS)
@@ -79,7 +79,7 @@ struct DevicesSheet: View {
                     }
                     if fresh.isEmpty && !model.discovery.isScanning {
                         Text(model.discovery.found.isEmpty
-                             ? "No TVs found. Make sure your TV is on and connected to the same Wi-Fi, or add it by IP address."
+                             ? "No TVs found. Make sure your TV is on and connected to the same local network, or add it by IP address."
                              : "No other TVs found.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
