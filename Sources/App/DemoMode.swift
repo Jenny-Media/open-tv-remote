@@ -32,6 +32,7 @@ final class DemoDriver: TVDriver {
     }
     func disconnect() {}
     func supports(_ key: RemoteKey) -> Bool { true }
+    var typesLive: Bool { !UserDefaults.standard.bool(forKey: "demoBufferedKeyboard") }
     var supportsCursor: Bool { device.brand == .lg }
     func send(_ key: RemoteKey) {}
     func sendCursor(_ command: CursorCommand, request: RemoteInputRequest) async -> Bool { request.canDispatch }

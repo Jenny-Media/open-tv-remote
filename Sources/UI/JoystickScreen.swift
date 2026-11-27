@@ -9,9 +9,8 @@ struct JoystickScreen: View {
     var body: some View {
         JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && page == 0,
                          sessionID: model.currentID, inputLog: inputLog, compactHeight: compactHeight,
-                         mode: Binding(get: { model.remoteControlMode }, set: {
-                             Haptics.tap(); model.selectRemoteMode($0)
-                         }), modes: model.availableRemoteModes) { key, request in
+                         mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
+                         modes: model.availableRemoteModes) { key, request in
             guard model.remoteInputAvailable, page == 0, model.remoteControlMode == .eyesFree, !request.isCancelled else { return }
             switch request.feedback {
             case .firm:
@@ -20,7 +19,12 @@ struct JoystickScreen: View {
                 case .select: Haptics.tick()
                 default: Haptics.tap()
                 }
-            case .soft: Haptics.joystickRepeat()
+            case .soft:
+                let recordDispatch = request.onDispatch
+                request.onDispatch = {
+                    recordDispatch?()
+                    Haptics.repeatTick()
+                }
             case .none: break
             }
             await model.pressInteractively(key, request: request)

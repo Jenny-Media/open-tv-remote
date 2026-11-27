@@ -3,6 +3,37 @@ import CoreGraphics
 import Testing
 @testable import JoystickCore
 
+@MainActor
+@Suite("Held button feedback")
+struct HeldButtonFeedbackTests {
+    @Test func cancelledQueueWorkDoesNotPulseAndDispatchedRepeatsAreSpaced() {
+        let start = ContinuousClock.now
+        var time = start
+        var cadence = RepeatFeedbackCadence()
+        var pulses = 0
+        var isCurrent = false
+        let request = RemoteInputRequest(isRepeat: true, isCurrent: { isCurrent })
+        request.onDispatch = { if cadence.consume(at: time) { pulses += 1 } }
+
+        #expect(!request.beginDispatch())
+        #expect(pulses == 0)
+
+        isCurrent = true
+        #expect(request.beginDispatch())
+        time = start.advanced(by: .milliseconds(110))
+        #expect(request.beginDispatch())
+        #expect(pulses == 1)
+
+        time = start.advanced(by: .milliseconds(500))
+        #expect(request.beginDispatch())
+        #expect(pulses == 2)
+        request.cancel()
+        time = start.advanced(by: .seconds(1))
+        #expect(!request.beginDispatch())
+        #expect(pulses == 2)
+    }
+}
+
 @Suite("Eyes-free gesture")
 struct JoystickGestureTests {
     @Test func aBriefTapSelectsAndResets() {
@@ -123,6 +154,7 @@ struct JoystickSenderTests {
         let sender = JoystickSender(send: { _, request in
             count += 1
             if request.feedback != .none { pulses.append((time, request.feedback)) }
+            _ = request.beginDispatch()
         }, sleep: { delay in
             time += delay == .milliseconds(420) ? 0.42 : 0.18
         }, now: { time })
@@ -137,6 +169,43 @@ struct JoystickSenderTests {
             #expect(second.0 - first.0 <= 0.61)
         }
         sender.stop()
+    }
+
+    @Test func aDroppedRepeatDoesNotSpendTheCooldownAndAQueuedRepeatStartsItAtDispatch() async {
+        var time: TimeInterval = 0
+        var candidates: [TimeInterval] = []
+        var pulses: [TimeInterval] = []
+        var count = 0
+        let sender = JoystickSender(send: { _, request in
+            count += 1
+            if request.feedback == .soft {
+                candidates.append(time)
+                if candidates.count == 1 { return }
+                if candidates.count == 2 { time += 0.56 }
+
+                let recordDispatch = request.onDispatch
+                request.onDispatch = {
+                    recordDispatch?()
+                    pulses.append(time)
+                }
+            }
+            _ = request.beginDispatch()
+        }, sleep: { delay in
+            time += delay == .milliseconds(420) ? 0.42 : 0.18
+        }, now: { time })
+
+        sender.hold(.right)
+        await eventually { count == 41 }
+        sender.stop()
+
+        #expect(candidates.count > 2)
+        if candidates.count >= 2 {
+            #expect(abs(candidates[1] - candidates[0] - 0.18) < 0.001)
+        }
+        #expect(pulses.count > 1)
+        for (first, second) in zip(pulses, pulses.dropFirst()) {
+            #expect(second - first >= 0.5)
+        }
     }
 
     @Test func stalledTransportDoesNotProduceAnIndependentHapticHeartbeat() async {

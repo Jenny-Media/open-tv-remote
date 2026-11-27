@@ -1,6 +1,47 @@
 import Testing
 @testable import JoystickCore
 
+@Suite("Explicit pairing feedback")
+struct PairingFeedbackTests {
+    @Test func rejectionsCanBeRetriedAndSuccessIsOneShot() {
+        var feedback = PairingFeedback()
+        #expect(feedback.receive(.connected) == nil)
+        feedback.start()
+        #expect(feedback.receive(.idle) == nil)
+        #expect(feedback.receive(.connecting) == nil)
+        #expect(feedback.receive(.pairing(.enterCode(length: 6, error: nil))) == nil)
+        let wrongCode = ConnectionState.pairing(.enterCode(length: 6, error: "Wrong code"))
+        #expect(feedback.receive(wrongCode) == .error)
+        #expect(feedback.receive(wrongCode) == .error)
+        #expect(feedback.receive(.pairing(.verifying)) == nil)
+        #expect(feedback.receive(.connected) == .success)
+        #expect(feedback.receive(.connected) == nil)
+    }
+
+    @Test func cancellingOrFailingDoesNotPulseOnReconnect() {
+        var feedback = PairingFeedback()
+        feedback.start()
+        feedback.cancel()
+        #expect(feedback.receive(.failed("Cancelled")) == nil)
+        #expect(feedback.receive(.connected) == nil)
+        feedback.start()
+        #expect(feedback.receive(.failed("Denied")) == .error)
+        #expect(feedback.receive(.failed("Denied")) == nil)
+        #expect(feedback.receive(.connected) == nil)
+    }
+
+    @Test func returningToUnpairedEndsAnExplicitAttempt() {
+        var feedback = PairingFeedback()
+        #expect(feedback.receive(.unpaired) == nil)
+        feedback.start()
+        #expect(feedback.receive(.pairing(.verifying)) == nil)
+        #expect(feedback.receive(.connecting) == nil)
+        #expect(feedback.receive(.unpaired) == .error)
+        #expect(feedback.receive(.unpaired) == nil)
+        #expect(feedback.receive(.connected) == nil)
+    }
+}
+
 @Suite("Remote input availability")
 struct RemoteInputAvailabilityTests {
     private let states: [ConnectionState] = [

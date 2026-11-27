@@ -24,6 +24,16 @@ final class JoystickUITests: XCTestCase {
     private var stick: XCUIElement { app.descendants(matching: .any).matching(identifier: "eyesFreeStick").firstMatch }
     private var count: Int { Int(log.label.split(separator: ":").first ?? "-1") ?? -1 }
 
+    func testHapticFeedbackSettingReflectsTheConfiguredPreference() {
+        for value in ["NO", "YES"] {
+            launch(openMode: false, additionalArguments: ["-demoSheet", "settings", "-haptics.enabled", value])
+            let haptics = app.switches["Haptic Feedback"]
+            XCTAssertTrue(haptics.waitForExistence(timeout: 5))
+            XCTAssertEqual(haptics.value as? String, value == "YES" ? "1" : "0")
+            app.terminate()
+        }
+    }
+
     func testFirstRemoteGuideAfterPairingASavedTVCanBeSkippedAndReopened() {
         let arguments = ["-demoGuideTestProfile", UUID().uuidString]
         launch(openMode: false, additionalArguments: arguments + ["-demoUnpaired", "YES"])
@@ -175,6 +185,61 @@ final class JoystickUITests: XCTestCase {
         assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Right") {
             target.press(forDuration: 1)
         }
+    }
+
+    func testHandheldDirectionalHoldWaitsForThePreviousRepeat() {
+        launch(openMode: false, additionalArguments: ["-padMode", "standard", "-demoInteractiveDelayMS", "900"])
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        let target = ok.coordinate(withNormalizedOffset: CGVector(dx: 1.4, dy: 0.5))
+        assertDelayedHoldSendsOneRepeat(log: app.staticTexts["demoPadInputLog"], key: "Right") {
+            target.press(forDuration: 1)
+        }
+    }
+
+    func testKeyboardSheetDeleteCanRepeatWhileTheSheetIsOpen() {
+        launch(openMode: false, additionalArguments: ["-demoSheet", "keyboard", "-demoInteractiveDelayMS", "900"])
+        let delete = app.buttons["Delete on TV"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.press(forDuration: 1)
+        app.buttons["Done"].tap()
+
+        let padLog = app.staticTexts["demoPadInputLog"]
+        XCTAssertTrue(padLog.waitForExistence(timeout: 5))
+        XCTAssertEqual(padLog.label, "2:Delete")
+    }
+
+    func testPausedBufferedKeyboardCanHoldDeleteUntilTheLocalTextIsGone() {
+        launch(openMode: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoConnectionPaused", "YES", "-demoBufferedKeyboard", "YES",
+        ])
+        let delete = app.buttons.matching(identifier: "Delete").firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+        for key in ["q", "w", "e"] { app.buttons[key].tap() }
+        XCTAssertTrue(delete.isEnabled)
+
+        delete.press(forDuration: 1)
+        XCTAssertFalse(delete.isEnabled)
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "3:e")
+    }
+
+    func testTVDeleteIsDisabledOnThePadsAndKeyboardSheetWhilePaused() {
+        let paused = ["-demoConnectionPaused", "YES"]
+        launch(openMode: false, additionalArguments: paused + ["-padMode", "keyboard"])
+        let delete = app.buttons.matching(identifier: "Delete").firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+
+        selectMode("keypad", title: "Number pad")
+        XCTAssertTrue(app.buttons["0"].waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled)
+
+        app.terminate()
+        launch(openMode: false, additionalArguments: paused + ["-demoSheet", "keyboard"])
+        let sheetDelete = app.buttons["Delete on TV"]
+        XCTAssertTrue(sheetDelete.waitForExistence(timeout: 5))
+        XCTAssertFalse(sheetDelete.isEnabled)
     }
 
     func testBookPlaybackStopsWhenTheTouchLeavesTheButton() throws {

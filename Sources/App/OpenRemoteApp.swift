@@ -301,7 +301,8 @@ struct PageSwitcher: View {
 
     private func tab(_ title: String, systemImage: String, index: Int, key: KeyEquivalent) -> some View {
         Button {
-            Haptics.tick()
+            guard page != index else { return }
+            Haptics.selection()
             page = index
         } label: {
             Label(title, systemImage: systemImage)

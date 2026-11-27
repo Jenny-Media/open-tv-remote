@@ -16,28 +16,40 @@ enum Theme {
 }
 
 enum Haptics {
+    static let preferenceKey = "haptics.enabled"
+
     #if os(iOS)
+    private static var canPlay: Bool {
+        UIApplication.shared.applicationState == .active &&
+            (UserDefaults.standard.object(forKey: preferenceKey) as? Bool ?? true)
+    }
+
     private static let light = UIImpactFeedbackGenerator(style: .light)
     private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private static let firm = UIImpactFeedbackGenerator(style: .medium)
     private static let repeatPulse = UIImpactFeedbackGenerator(style: .light)
     private static let cursorPulse = UIImpactFeedbackGenerator(style: .light)
+    private static let selectionFeedback = UISelectionFeedbackGenerator()
+    private static let notificationFeedback = UINotificationFeedbackGenerator()
     #endif
 
     static func tap() {
         #if os(iOS)
+        guard canPlay else { return }
         light.impactOccurred()
         #endif
     }
 
     static func tick() {
         #if os(iOS)
+        guard canPlay else { return }
         rigid.impactOccurred(intensity: 0.6)
         #endif
     }
 
     static func joystickStart() {
         #if os(iOS)
+        guard canPlay else { return }
         firm.impactOccurred(intensity: 0.8)
         repeatPulse.prepare()
         #endif
@@ -45,6 +57,7 @@ enum Haptics {
 
     static func cursorStart() {
         #if os(iOS)
+        guard canPlay else { return }
         firm.impactOccurred(intensity: 0.8)
         cursorPulse.prepare()
         #endif
@@ -52,17 +65,31 @@ enum Haptics {
 
     static func cursorTick() {
         #if os(iOS)
+        guard canPlay else { return }
         cursorPulse.impactOccurred()
         cursorPulse.prepare()
         #endif
     }
 
-    static func joystickRepeat() {
+    static func repeatTick() {
         #if os(iOS)
-        // Use the standard light impact at its normal strength: gentler than the
-        // medium start, but more distinct than a low-intensity soft waveform.
+        guard canPlay else { return }
         repeatPulse.impactOccurred()
         repeatPulse.prepare()
+        #endif
+    }
+
+    static func selection() {
+        #if os(iOS)
+        guard canPlay else { return }
+        selectionFeedback.selectionChanged()
+        #endif
+    }
+
+    static func outcome(_ outcome: InteractionOutcome) {
+        #if os(iOS)
+        guard canPlay else { return }
+        notificationFeedback.notificationOccurred(outcome == .success ? .success : .error)
         #endif
     }
 }
@@ -91,7 +118,6 @@ struct KeySurface<S: InsettableShape>: View {
 /// A remote button: fires on touch-down (like a physical remote) and can auto-repeat while held.
 struct KeyCap<Label: View, S: InsettableShape>: View {
     var shape: S
-    var repeats = false
     var tint: Color? = Theme.accent
     var enabled = true
     var accessibilityLabel: String
@@ -99,6 +125,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var holdAction: (() -> Void)? = nil
     var holdName = "Hold"
     var repeatAction: ((RemoteInputRequest) async -> Void)? = nil
+    var repeatRequiresCurrentConnection = true
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
@@ -124,8 +151,10 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { fire() }
             .accessibilityActions {
-                if let holdAction { Button(holdName, action: holdAction) }
+                if let holdAction { Button(holdName) { fireHold(holdAction) } }
             }
+            .disabled(!enabled)
+            .onChange(of: enabled) { _, enabled in if !enabled { stopRepeating() } }
     }
 
     @ViewBuilder private var interaction: some View {
@@ -133,10 +162,8 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
         if let holdAction {
             face(pressed: holdHighlighted)
                 .overlay {
-                    HoldKeyCapTarget(tap: fire, hold: {
-                        Haptics.tick()
-                        holdAction()
-                    }, highlight: { holdHighlighted = $0 })
+                    HoldKeyCapTarget(tap: { fire() }, hold: { fireHold(holdAction) },
+                                     highlight: { holdHighlighted = $0 })
                     .accessibilityHidden(true)
                 }
         } else {
@@ -168,20 +195,19 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             )
             .onChange(of: dragPress == .inside) { _, isPressed in
                 stopRepeating()
-                guard isPressed, isEnabled else { return }
+                guard isPressed, enabled, isEnabled else { return }
                 if let holdAction {
                     held = false
                     repeatTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(700))
                         guard !Task.isCancelled else { return }
                         held = true
-                        Haptics.tick()
-                        holdAction()
+                        fireHold(holdAction)
                     }
                     return
                 }
                 fire()
-                if repeats { startRepeating() }
+                if let repeatAction { startRepeating(repeatAction) }
             }
             .onChange(of: scenePhase) { _, phase in
                 if repeatAction != nil && phase != .active { stopRepeating() }
@@ -203,30 +229,36 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     private func fire() {
-        guard isEnabled else { return }
+        guard enabled, isEnabled else { return }
         Haptics.tap()
         action()
     }
 
-    private func startRepeating() {
-        let isCurrent = remoteRepeatIsCurrent
+    private func fireHold(_ holdAction: () -> Void) {
+        guard enabled, isEnabled else { return }
+        Haptics.tick()
+        holdAction()
+    }
+
+    private func startRepeating(_ repeatAction: @escaping (RemoteInputRequest) async -> Void) {
         let deadline = ContinuousClock.now + .seconds(8)
-        let request = repeatAction.map { _ in
-            RemoteInputRequest(isRepeat: true, feedback: .soft, requiresCurrentConnection: true,
-                               deadline: deadline, isCurrent: isCurrent)
+        let isCurrent = remoteRepeatIsCurrent
+        let requiresCurrentConnection = repeatRequiresCurrentConnection
+        let request = RemoteInputRequest(isRepeat: true, feedback: .soft,
+                                         requiresCurrentConnection: requiresCurrentConnection,
+                                         deadline: deadline,
+                                         isCurrent: { isCurrent(requiresCurrentConnection) })
+        var feedback = RepeatFeedbackCadence()
+        request.onDispatch = {
+            if feedback.consume(at: .now) { Haptics.repeatTick() }
         }
         repeatRequest = request
         repeatTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(420))
             // Belt and braces: never auto-repeat for more than ~8 seconds.
             for _ in 0..<70 {
-                guard !Task.isCancelled, request?.canDispatch != false,
-                      ContinuousClock.now < deadline else { return }
-                if let repeatAction, let request {
-                    await repeatAction(request)
-                } else {
-                    fire()
-                }
+                guard request.canDispatch else { return }
+                await repeatAction(request)
                 try? await Task.sleep(for: .milliseconds(110))
             }
         }
@@ -327,10 +359,10 @@ private struct HoldKeyCapTarget: UIViewRepresentable {
 #endif
 
 extension KeyCap where S == RoundedRectangle {
-    init(repeats: Bool = false, tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,
+    init(tint: Color? = Theme.accent, enabled: Bool = true, accessibilityLabel: String,
          repeatAction: ((RemoteInputRequest) async -> Void)? = nil,
          action: @escaping () -> Void, @ViewBuilder label: @escaping () -> Label) {
-        self.init(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous), repeats: repeats, tint: tint,
+        self.init(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous), tint: tint,
                   enabled: enabled, accessibilityLabel: accessibilityLabel, repeatAction: repeatAction,
                   action: action, label: label)
     }
@@ -339,14 +371,13 @@ extension KeyCap where S == RoundedRectangle {
 /// Convenience: a key bound straight to a RemoteKey.
 struct RemoteKeyButton: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.cancellableRemoteRepeats) private var cancellableRepeats
     let key: RemoteKey
     let symbol: String
     var repeats = false
 
     var body: some View {
-        KeyCap(repeats: repeats, enabled: model.supports(key), accessibilityLabel: key.accessibilityName,
-               repeatAction: model.repeatAction(for: key, enabled: repeats && cancellableRepeats)) {
+        KeyCap(enabled: model.supports(key), accessibilityLabel: key.accessibilityName,
+               repeatAction: repeats ? model.repeatAction(for: key) : nil) {
             model.press(key)
         } label: {
             Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
@@ -354,38 +385,36 @@ struct RemoteKeyButton: View {
     }
 }
 
-private struct CancellableRemoteRepeatsKey: EnvironmentKey {
+private struct AdaptiveKeyboardLayoutKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 private struct RemoteRepeatIsCurrentKey: EnvironmentKey {
-    static let defaultValue: () -> Bool = { true }
+    static let defaultValue: (Bool) -> Bool = { _ in true }
 }
 
 extension EnvironmentValues {
-    var cancellableRemoteRepeats: Bool {
-        get { self[CancellableRemoteRepeatsKey.self] }
-        set { self[CancellableRemoteRepeatsKey.self] = newValue }
+    var adaptiveKeyboardLayout: Bool {
+        get { self[AdaptiveKeyboardLayoutKey.self] }
+        set { self[AdaptiveKeyboardLayoutKey.self] = newValue }
     }
 
-    var remoteRepeatIsCurrent: () -> Bool {
+    var remoteRepeatIsCurrent: (Bool) -> Bool {
         get { self[RemoteRepeatIsCurrentKey.self] }
         set { self[RemoteRepeatIsCurrentKey.self] = newValue }
     }
 }
 
 extension AppModel {
-    func repeatAction(for key: RemoteKey, enabled: Bool) -> ((RemoteInputRequest) async -> Void)? {
-        guard enabled else { return nil }
+    func repeatAction(for key: RemoteKey) -> (RemoteInputRequest) async -> Void {
         let deviceID = currentID
         return { request in
-            guard request.canDispatch, self.currentID == deviceID, self.remoteCommandsAvailable,
+            guard request.canDispatch, self.currentID == deviceID,
                   !self.isConnectionPaused, self.supports(key) else {
                 request.cancel()
                 return
             }
-            guard self.remoteInputAvailable else { return }
-            Haptics.tick()
+            guard self.state.isConnected else { return }
             await self.pressInteractively(key, request: request)
         }
     }

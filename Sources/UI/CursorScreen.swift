@@ -16,9 +16,8 @@ struct CursorScreen: View {
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
                        tabletop: tabletop,
-                       mode: Binding(get: { model.remoteControlMode }, set: {
-                           Haptics.tap(); model.selectRemoteMode($0)
-                       }), modes: model.availableRemoteModes) { command, request in
+                       mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
+                       modes: model.availableRemoteModes) { command, request in
             guard page == 0 else { return false }
             let sent = await model.sendCursor(command, request: request)
             if case .move = command { return sent }
@@ -195,12 +194,11 @@ private struct CursorControls: View {
                 Text("\(Int(sender.speed))×").monospacedDigit()
             }
             .font(.subheadline.weight(.medium))
-            Slider(value: Binding(get: { sender.speed }, set: { sender.setSpeed($0) }), in: CursorMotion.speedRange, step: 4,
-                   onEditingChanged: { if !$0 { Haptics.tap() } })
+            Slider(value: Binding(get: { sender.speed }, set: { sender.setSpeed($0) }), in: CursorMotion.speedRange, step: 4)
                 .accessibilityLabel("Cursor speed")
             Toggle("Reverse scrolling", isOn: $reverseScroll)
                 .font(.subheadline)
-                .onChange(of: reverseScroll) { _, _ in sender.release(); Haptics.tap() }
+                .onChange(of: reverseScroll) { _, _ in sender.release() }
         }
     }
 
