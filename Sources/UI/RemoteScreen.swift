@@ -73,7 +73,7 @@ struct RemoteScreen: View {
                 if let companion = layout.companion {
                     Group {
                         if tabletop {
-                            tabletopCompanion
+                            tabletopCompanion(groupsSideBySide: companion.width >= 430)
                         } else {
                             bookControls
                         }
@@ -134,32 +134,40 @@ struct RemoteScreen: View {
         .scrollBounceBehavior(.basedOnSize)
     }
 
-    private var tabletopCompanion: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 12) {
-                    TVSelectionButton(prominent: true)
-                        .accessibilityIdentifier("tabletopTVSelection")
-                    if let appName = model.lastReportedAppName {
-                        Label("Last reported app · \(appName)", systemImage: "play.tv")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.secondary)
-                            .accessibilityLabel("Last reported app, \(appName)")
-                            .accessibilityIdentifier("tabletopForegroundApp")
+    private func tabletopCompanion(groupsSideBySide: Bool) -> some View {
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        TVSelectionButton(prominent: true)
+                            .accessibilityIdentifier("tabletopTVSelection")
+                        if let appName = model.lastReportedAppName {
+                            Label("Last reported app · \(appName)", systemImage: "play.tv")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.secondary)
+                                .accessibilityLabel("Last reported app, \(appName)")
+                                .accessibilityIdentifier("tabletopForegroundApp")
+                        }
+                        StatusBanner()
+                        if !usesSystemToolbar {
+                            TopBar(showsTVSelection: false)
+                        }
                     }
-                    StatusBanner()
-                    if !usesSystemToolbar {
-                        TopBar(showsTVSelection: false)
-                    }
-                    DuoQuickControls(groupsSideBySide: geometry.size.width >= 430)
-                        .id(model.remoteControlMode)
+                    .frame(maxWidth: 440)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
                 }
-                .frame(maxWidth: 440)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
+            if model.current != nil {
+                // Keep media keys next to the hinge when status appears, wraps, or scrolls.
+                DuoQuickControls(groupsSideBySide: groupsSideBySide)
+                    .id(model.remoteControlMode)
+                    .frame(maxWidth: 440)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
         }
         .accessibilityIdentifier("remoteTVStatusPane")
     }

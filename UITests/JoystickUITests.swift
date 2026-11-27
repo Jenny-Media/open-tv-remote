@@ -124,6 +124,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
 
         let remoteStartedOnLeft = stick.frame.midX < swap.frame.midX
+        let volume = app.buttons["Volume up"]
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, remoteStartedOnLeft)
         swap.tap()
         defer {
             if swap.isHittable && (stick.frame.midX < swap.frame.midX) != remoteStartedOnLeft { swap.tap() }
@@ -132,7 +135,8 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(log.label, "0:None")
         XCTAssertTrue(app.staticTexts["Volume"].isHittable)
         XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
-        app.buttons["Volume up"].tap()
+        XCTAssertEqual(stick.frame.midX < volume.frame.midX, !remoteStartedOnLeft)
+        volume.tap()
         XCTAssertEqual(log.label, "1:Volume up")
         XCTAssertFalse(app.navigationBars["Apps"].exists)
         app.buttons["TV Apps"].tap()
@@ -143,6 +147,7 @@ final class JoystickUITests: XCTestCase {
         launch()
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
         XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(stick.frame.midX < app.buttons["Volume up"].frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(log.label, "0:None")
     }
 
@@ -308,6 +313,26 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Scroll with two fingers or the side strip"].exists)
     }
 
+    func testTabletopMediaStaysPutWhenTheReportedAppIsMissing() throws {
+        try requireDuoPosture("tabletop")
+        launch(additionalArguments: ["-demoForegroundAppPackage", "com.google.android.youtube.tv"])
+        XCTAssertTrue(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.isHittable)
+        let volumeWithApp = app.buttons["Volume up"].frame
+        let playbackWithApp = app.buttons["Play or pause"].frame
+        XCTAssertGreaterThan(volumeWithApp.height, 0)
+        XCTAssertGreaterThan(playbackWithApp.height, 0)
+        app.terminate()
+
+        launch(additionalArguments: ["-demoForegroundAppPackage", "example.unrecognized"])
+        XCTAssertFalse(app.descendants(matching: .any)["tabletopForegroundApp"].firstMatch.exists)
+        let volume = app.buttons["Volume up"]
+        let playback = app.buttons["Play or pause"]
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertTrue(playback.isHittable)
+        XCTAssertEqual(volume.frame.midY, volumeWithApp.midY, accuracy: 1)
+        XCTAssertEqual(playback.frame.midY, playbackWithApp.midY, accuracy: 1)
+    }
+
     func testFoldedVolumeControlsInPortraitAndLandscape() throws {
         try requireDuoPosture("closed")
         let device = XCUIDevice.shared
@@ -345,6 +370,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [expectedLayout], timeout: 5), .completed)
         let increase = app.buttons["Volume up"]
         let decrease = app.buttons["Volume down"]
+        let windowFrame = app.windows.firstMatch.frame
+        let volumeGroup = increase.frame.union(decrease.frame)
+        XCTAssertGreaterThan(volumeGroup.midY, windowFrame.minY + windowFrame.height * 2 / 3)
         for button in [increase, decrease] {
             XCTAssertTrue(button.isHittable)
             let capture = button.screenshot().image
