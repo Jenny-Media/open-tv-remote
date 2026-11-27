@@ -86,3 +86,10 @@ enum JSON {
         (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
     }
 }
+
+enum WakeOnLAN {
+    static func macBytes(_ mac: String) -> [UInt8]? { nil }
+    static func wake(mac: String, host: String) {
+        preconditionFailure("Host transport tests must not send wake packets.")
+    }
+}

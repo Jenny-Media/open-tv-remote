@@ -47,6 +47,15 @@ struct SettingsView: View {
                 }
                 #endif
 
+                Section("Help") {
+                    NavigationLink {
+                        RemoteGuide(showsCursor: model.supportsCursor)
+                    } label: {
+                        Label("How to use the remote", systemImage: "questionmark.circle")
+                    }
+                    .accessibilityIdentifier("remoteGuideInSettings")
+                }
+
                 JellyfinSettingsSection()
 
                 if model.jellyfin.isReady && !model.jellyfin.pins.isEmpty {

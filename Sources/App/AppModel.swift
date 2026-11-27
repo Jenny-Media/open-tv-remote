@@ -18,6 +18,7 @@ final class AppModel: TVDriverDelegate {
     var showingKeyboard = false
     var showingApps = false
     var showingSettings = false
+    var showingRemoteGuide = false
     private(set) var remoteControlMode: RemoteControlMode = .standard
     private let remoteModes = RemoteModePreferences()
 
@@ -32,7 +33,7 @@ final class AppModel: TVDriverDelegate {
     private var inputAvailability: RemoteInputAvailability {
         RemoteInputAvailability(state: state, showingDevices: showingDevices,
                                 showingKeyboard: showingKeyboard, showingApps: showingApps,
-                                showingSettings: showingSettings)
+                                showingSettings: showingSettings || showingRemoteGuide)
     }
 
     var availableRemoteModes: [RemoteControlMode] {
@@ -298,11 +299,12 @@ final class AppModel: TVDriverDelegate {
             return
         }
         pendingRemoteShortcut = url
-        let dismissing = showingDevices || showingKeyboard || showingApps || showingSettings
+        let dismissing = showingDevices || showingKeyboard || showingApps || showingSettings || showingRemoteGuide
         showingDevices = false
         showingKeyboard = false
         showingApps = false
         showingSettings = false
+        showingRemoteGuide = false
         if !dismissing { presentPendingRemoteShortcut() }
     }
     #endif
@@ -310,7 +312,7 @@ final class AppModel: TVDriverDelegate {
     func presentPendingRemoteShortcut() {
         #if os(iOS)
         guard let url = pendingRemoteShortcut,
-              !showingDevices, !showingKeyboard, !showingApps, !showingSettings else { return }
+              !showingDevices, !showingKeyboard, !showingApps, !showingSettings, !showingRemoteGuide else { return }
         pendingRemoteShortcut = nil
         guard remoteActivity.accepts(url, selectedID: currentID) else { return }
         if case .pairing = state { return }

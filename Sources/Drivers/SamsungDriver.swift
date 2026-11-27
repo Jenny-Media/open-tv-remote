@@ -48,15 +48,17 @@ final class SamsungDriver: TVDriver {
 
     private func open(prompting: Bool) {
         socket?.close()
-        let name = Data("Remote Lab".utf8).base64EncodedString()
+        // Keep the name that was authorized so reconnecting never asks the TV to pair again.
+        let clientName = prompting ? AppBranding.name : (device.samsungClientName ?? "Remote Lab")
+        let name = Data(clientName.utf8).base64EncodedString()
         var components = URLComponents(string: "wss://\(device.host):8002/api/v2/channels/samsung.remote.control")!
         components.queryItems = [URLQueryItem(name: "name", value: name)]
-        if let token = device.token, !token.isEmpty {
+        if !prompting, let token = device.token, !token.isEmpty {
             components.queryItems?.append(URLQueryItem(name: "token", value: token))
         }
         let ws = LocalWebSocket(url: components.url!)
         state = prompting ? .pairing(.acceptOnTV) : .connecting
-        ws.onText = { [weak self] in self?.handle($0) }
+        ws.onText = { [weak self] in self?.handle($0, pairingName: prompting ? clientName : nil) }
         ws.onClose = { [weak self] _ in
             guard let self else { return }
             self.socket = nil
@@ -75,15 +77,18 @@ final class SamsungDriver: TVDriver {
         ws.start()
     }
 
-    private func handle(_ text: String) {
+    private func handle(_ text: String, pairingName: String?) {
         guard let json = JSON.parse(text), let event = json["event"] as? String else { return }
         let data = json["data"] as? [String: Any]
         switch event {
         case "ms.channel.connect":
             // Older models never issue tokens; remember that we've been allowed anyway.
-            let token = data?["token"] as? String ?? device.token ?? ""
-            if token != device.token {
+            let previousToken = pairingName == nil ? device.token : nil
+            let token = data?["token"] as? String ?? previousToken ?? ""
+            let clientName = pairingName ?? device.samsungClientName
+            if token != device.token || clientName != device.samsungClientName {
                 device.token = token
+                device.samsungClientName = clientName
                 delegate?.driver(self, didUpdateDevice: device)
             }
             wakeAttempts = 0
@@ -98,6 +103,7 @@ final class SamsungDriver: TVDriver {
             }
         case "ms.channel.unauthorized":
             device.token = nil
+            device.samsungClientName = nil
             delegate?.driver(self, didUpdateDevice: device)
             socket?.close()
             socket = nil

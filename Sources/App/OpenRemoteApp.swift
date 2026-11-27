@@ -30,6 +30,21 @@ struct OpenRemoteApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage private var firstGuideState: FirstGuideState
+
+    private enum FirstGuideState: String {
+        case unclassified, pending, handled
+    }
+
+    init() {
+        #if DEBUG
+        if let profile = DemoMode.guideTestProfile {
+            _firstGuideState = AppStorage(wrappedValue: .pending, "demoRemoteGuide.\(profile.uuidString)")
+            return
+        }
+        #endif
+        _firstGuideState = AppStorage(wrappedValue: .unclassified, "remoteGuide.firstRun.v1")
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -37,6 +52,23 @@ struct RootView: View {
             pager
                 .jellyfinDestinations()
         }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if firstGuideState == .pending && model.remoteInputAvailable {
+                    ViewThatFits {
+                        HStack {
+                            guideButton
+                            Spacer()
+                            skipGuideButton
+                        }
+                        VStack(alignment: .leading) {
+                            guideButton
+                            skipGuideButton
+                        }
+                    }
+                    .padding(.horizontal)
+                    .background(.bar)
+                }
+            }
             .safeAreaInset(edge: .bottom) { JellyfinStatusBar() }
             #if os(iOS)
             .background {
@@ -51,6 +83,9 @@ struct RootView: View {
             .sheet(isPresented: $model.showingDevices, onDismiss: model.presentPendingRemoteShortcut) { DevicesSheet() }
             .sheet(isPresented: $model.showingKeyboard, onDismiss: model.presentPendingRemoteShortcut) { KeyboardSheet() }
             .sheet(isPresented: $model.showingApps, onDismiss: model.presentPendingRemoteShortcut) { AppsSheet() }
+            .sheet(isPresented: $model.showingRemoteGuide, onDismiss: model.presentPendingRemoteShortcut) {
+                RemoteGuideSheet(showsCursor: model.supportsCursor)
+            }
             #if os(iOS)
             .sheet(isPresented: $model.showingSettings, onDismiss: model.presentPendingRemoteShortcut) { SettingsView() }
             .onOpenURL { model.handleRemoteShortcut($0) }
@@ -65,9 +100,31 @@ struct RootView: View {
                 }
             }
             .task {
+                if firstGuideState == .unclassified {
+                    firstGuideState = model.devices.isEmpty ? .pending : .handled
+                }
                 if scenePhase == .active { model.sceneDidBecomeActive() }
                 if model.devices.isEmpty { model.showingDevices = true }
             }
+    }
+
+    private var guideButton: some View {
+        Button {
+            model.showingRemoteGuide = true
+            firstGuideState = .handled
+        } label: {
+            Label("How to use the remote", systemImage: "questionmark.circle")
+                .font(.subheadline.weight(.medium))
+                .frame(minHeight: 44)
+        }
+        .accessibilityIdentifier("firstRemoteGuide")
+    }
+
+    private var skipGuideButton: some View {
+        Button("Skip") { firstGuideState = .handled }
+            .font(.subheadline)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("skipRemoteGuide")
     }
 
     @ViewBuilder

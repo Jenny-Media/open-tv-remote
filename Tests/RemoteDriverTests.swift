@@ -13,6 +13,57 @@ private func waitUntil(_ condition: () -> Bool) async {
 @Suite("Interactive transport ordering and recovery", .serialized)
 @MainActor
 struct RemoteDriverTests {
+    @Test(arguments: ["legacy-token", ""])
+    func samsungReconnectUsesTheNameAndTokenOfAnExistingPairing(_ token: String) throws {
+        LocalWebSocket.instances = []
+        let oldRecord = Data("""
+            {"name":"Samsung","brand":"samsung","host":"192.0.2.40","token":"\(token)","isPaired":false}
+            """.utf8)
+        let saved = try JSONDecoder().decode(TVDevice.self, from: oldRecord)
+        #expect(saved.samsungClientName == nil)
+        let driver = SamsungDriver(device: saved)
+        defer { driver.disconnect() }
+        driver.connect()
+
+        let socket = try #require(LocalWebSocket.instances.last)
+        let query = URLComponents(url: socket.url, resolvingAgainstBaseURL: false)?.queryItems
+        let encodedName = try #require(query?.first { $0.name == "name" }?.value)
+        let clientName = Data(base64Encoded: encodedName).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(clientName == "Remote Lab")
+        #expect(query?.first { $0.name == "token" }?.value == (token.isEmpty ? nil : token))
+        #expect(driver.state == .connecting)
+    }
+
+    @Test(arguments: [false, true])
+    func samsungExplicitPairingSavesTheNewNameForFutureConnections(_ tokenless: Bool) throws {
+        LocalWebSocket.instances = []
+        let saved = TVDevice(name: "Samsung", brand: .samsung, host: "192.0.2.40", token: "old-token")
+        let driver = SamsungDriver(device: saved)
+        driver.pair()
+        let pairingSocket = try #require(LocalWebSocket.instances.last)
+        let pairingQuery = URLComponents(url: pairingSocket.url, resolvingAgainstBaseURL: false)?.queryItems
+        let encodedName = Data("Just a TV Remote".utf8).base64EncodedString()
+        #expect(pairingQuery?.first { $0.name == "name" }?.value == encodedName)
+        #expect(pairingQuery?.first { $0.name == "token" } == nil)
+        #expect(driver.state == .pairing(.acceptOnTV))
+
+        let payload = tokenless ? "{}" : "{\"token\":\"new-token\"}"
+        pairingSocket.onText?("{\"event\":\"ms.channel.connect\",\"data\":\(payload)}")
+        #expect(driver.device.samsungClientName == "Just a TV Remote")
+        #expect(driver.device.token == (tokenless ? "" : "new-token"))
+        let restored = try JSONDecoder().decode(TVDevice.self, from: JSONEncoder().encode(driver.device))
+        driver.disconnect()
+
+        let reconnecting = SamsungDriver(device: restored)
+        defer { reconnecting.disconnect() }
+        reconnecting.connect()
+        let socket = try #require(LocalWebSocket.instances.last)
+        let query = URLComponents(url: socket.url, resolvingAgainstBaseURL: false)?.queryItems
+        #expect(query?.first { $0.name == "name" }?.value == encodedName)
+        #expect(query?.first { $0.name == "token" }?.value == (tokenless ? nil : "new-token"))
+        #expect(reconnecting.state == .connecting)
+    }
+
     @Test func rokuDisconnectInvalidatesEveryQueuedNormalCommandAndOldResponse() async {
         let driver = await connectedRoku()
         driver.send(.up)
