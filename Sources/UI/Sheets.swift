@@ -146,7 +146,9 @@ struct KeyboardSheetButton: View {
 struct KeyboardSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var text = ""
+    @State private var sendFailed = false
     @FocusState private var focused: Bool
     var continuesPadEditing = false
 
@@ -154,14 +156,36 @@ struct KeyboardSheet: View {
     private var tracksLiveText: Bool { continuesPadEditing && model.typesLive }
 
     var body: some View {
-        @Bindable var model = model
-        let deviceID = model.currentID
         VStack(spacing: 16) {
             HStack {
                 Text("Type on your TV").font(.system(size: 18, weight: .bold, design: .rounded))
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(.plain).foregroundStyle(Theme.accent).fontWeight(.semibold)
             }
+            if continuesPadEditing {
+                ScrollView { fields }
+                    .scrollBounceBehavior(.basedOnSize)
+            } else {
+                fields
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(20)
+        .background(Theme.background.ignoresSafeArea())
+        .onAppear { focused = true }
+        #if os(iOS)
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize && continuesPadEditing
+                             ? [.large] : [.height(tracksLiveText ? 260 : 210)])
+        .presentationCompactAdaptation(continuesPadEditing ? .fullScreenCover : .automatic)
+        #else
+        .frame(width: 400, height: 180)
+        #endif
+    }
+
+    private var fields: some View {
+        @Bindable var model = model
+        let deviceID = model.currentID
+        return VStack(spacing: 16) {
             HStack(spacing: 10) {
                 TextField("Search or type…", text: usesPadDraft ? $model.typed : $text)
                     .textFieldStyle(.plain)
@@ -172,15 +196,19 @@ struct KeyboardSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 48)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
-                KeyCap(enabled: model.canSendTVDelete, accessibilityLabel: "Delete on TV", repeatAction: repeatDelete) {
-                    if tracksLiveText { model.typeDelete() }
+                KeyCap(shape: RoundedRectangle(cornerRadius: Theme.corner, style: .continuous),
+                       enabled: usesPadDraft ? !model.typed.isEmpty : model.canSendTVDelete,
+                       accessibilityLabel: usesPadDraft ? "Delete draft character" : "Delete on TV",
+                       repeatAction: repeatDelete, repeatRequiresCurrentConnection: !usesPadDraft) {
+                    if continuesPadEditing { model.typeDelete() }
                     else { model.press(.backspace) }
                 } label: {
                     Image(systemName: "delete.left").font(.system(size: 17, weight: .semibold))
                 }
                 .frame(width: 52, height: 48)
-                .environment(\.remoteRepeatIsCurrent, { _ in
-                    model.showingKeyboard && model.currentID == deviceID && !model.isConnectionPaused
+                .environment(\.remoteRepeatIsCurrent, { requiresCurrentConnection in
+                    model.showingKeyboard && model.currentID == deviceID &&
+                        (!requiresCurrentConnection || !model.isConnectionPaused)
                 })
                 Button {
                     send(playsFeedback: true)
@@ -193,39 +221,42 @@ struct KeyboardSheet: View {
                 .disabled((usesPadDraft ? model.typed : text).isEmpty)
                 .accessibilityLabel("Send text")
             }
-            Text("Select a search box on your TV first, then type here.")
+            if tracksLiveText {
+                Button("Return on TV", systemImage: "return") {
+                    send(playsFeedback: true, returnsOnTV: true)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.canReturnOnTV)
+            }
+            Text(sendFailed ? "Couldn’t send text. Check your TV connection and try again."
+                            : "Select a search box on your TV first, then type here.")
                 .font(.footnote)
-                .foregroundStyle(Theme.secondary)
+                .foregroundStyle(sendFailed ? Theme.power : Theme.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
         }
-        .padding(20)
-        .background(Theme.background.ignoresSafeArea())
-        .onAppear { focused = true }
-        .onChange(of: model.currentID) { _, _ in
-            if continuesPadEditing { dismiss() }
-        }
-        #if os(iOS)
-        .presentationDetents([.height(210)])
-        #else
-        .frame(width: 400, height: 180)
-        #endif
     }
 
     private var repeatDelete: (RemoteInputRequest) async -> Void {
-        if tracksLiveText {
+        if continuesPadEditing {
             return { request in await model.repeatTypeDelete(request: request, fromKeyboardSheet: true) }
         }
         return model.repeatAction(for: .backspace)
     }
 
     /// Sends the whole text at once, then gets out of the way so the TV's search can be navigated.
-    private func send(playsFeedback: Bool) {
+    private func send(playsFeedback: Bool, returnsOnTV: Bool = false) {
         let text = usesPadDraft ? model.typed : self.text
-        guard !text.isEmpty else { return }
+        guard returnsOnTV ? model.canReturnOnTV : !text.isEmpty else { return }
         if playsFeedback { Haptics.tap() }
-        if continuesPadEditing { model.submitKeyboardPadText(text) }
-        else { model.sendText(text) }
+        if continuesPadEditing {
+            if !text.isEmpty, !model.submitKeyboardPadText(text) {
+                sendFailed = true
+                return
+            }
+            if returnsOnTV { model.typeReturn() }
+        } else {
+            model.sendText(text)
+        }
         dismiss()
     }
 }

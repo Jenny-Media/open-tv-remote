@@ -309,8 +309,9 @@ final class AndroidTVDriver: TVDriver {
         await remote.sendAndWait(message, beginDispatch: request.beginDispatch)
     }
 
-    func sendText(_ text: String) {
-        guard !text.isEmpty, state == .connected else { return }
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        guard !text.isEmpty, state == .connected, let remote else { return false }
         let cursor = text.count - 1
         var m = ProtoWriter()
         m.message(21) { b in
@@ -325,7 +326,8 @@ final class AndroidTVDriver: TVDriver {
                 }
             }
         }
-        remote?.send(m)
+        remote.send(m)
+        return true
     }
 
     func launch(_ app: TVApp) {

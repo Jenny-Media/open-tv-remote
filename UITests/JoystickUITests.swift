@@ -361,17 +361,21 @@ final class JoystickUITests: XCTestCase {
     }
 
     func testIPhoneKeyboardFitsPortraitAndLandscape() throws {
+        try requireStandardIPhone()
+        assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
+    }
+
+    private func requireStandardIPhone() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
         let environment = ProcessInfo.processInfo.environment
         // The model identifier also covers Duo runs without a posture fixture.
         try XCTSkipIf(environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" ||
                       environment["OPEN_REMOTE_DUO_POSTURE"] != nil,
                       "Duo uses its posture-specific keyboard tests.")
-        assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
     func testShortPhoneLandscapeKeepsTypingReachableWithPairingBanner() throws {
-        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
+        try requireStandardIPhone()
         let device = XCUIDevice.shared
         let original = device.orientation
         defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
@@ -905,6 +909,12 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(input.label, "1:Nature documentaries")
         app.buttons["Clear"].tap()
         XCTAssertEqual(input.label, "\("Nature documentaries".count + 1):Delete")
+
+        typing.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.buttons["Return on TV"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(input.label.hasSuffix(":Enter"))
     }
 
     func testShortTabletopStacksControlsInANarrowWindow() throws {
@@ -948,6 +958,9 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, "qw")
         field.typeText("e")
         XCTAssertEqual(field.value as? String, "qwe")
+        app.buttons["Delete draft character"].tap()
+        XCTAssertEqual(field.value as? String, "qw")
+        field.typeText("e")
         app.buttons["Done"].tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5))
 

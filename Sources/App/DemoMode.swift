@@ -41,7 +41,7 @@ final class DemoDriver: TVDriver {
         let delay = UserDefaults.standard.integer(forKey: "demoInteractiveDelayMS")
         if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
     }
-    func sendText(_ text: String) {}
+    func sendText(_ text: String) -> Bool { state == .connected }
     func launch(_ app: TVApp) {}
     func installedApps() async -> [TVApp]? { DemoMode.artworkApps }
 }

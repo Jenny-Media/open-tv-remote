@@ -197,7 +197,17 @@ struct KeyboardPadView: View {
                 phoneClearButton
                 typing
             }
-            typing
+            // Fit height at the proposed width so the typing label can wrap.
+            ViewThatFits(in: .vertical) {
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        DPadView().frame(width: 88, height: 88)
+                        phoneClearButton
+                    }
+                    typing
+                }
+                typing
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

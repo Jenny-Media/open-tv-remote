@@ -90,7 +90,9 @@ protocol TVDriver: AnyObject {
     var supportsCursor: Bool { get }
     /// True only when handed to the current pointer transport, not a TV acknowledgment.
     func sendCursor(_ command: CursorCommand, request: RemoteInputRequest) async -> Bool
-    func sendText(_ text: String)
+    /// True when the driver accepts the text for dispatch.
+    @discardableResult
+    func sendText(_ text: String) -> Bool
     /// Whether text sent a piece at a time is appended on the TV, so the keyboard pad can type live.
     var typesLive: Bool { get }
     func launch(_ app: TVApp)

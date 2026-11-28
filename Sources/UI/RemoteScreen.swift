@@ -209,7 +209,7 @@ struct RemoteScreen: View {
                     }
                 }
                 // The preference chooses a physical side in every language.
-                .environment(\.layoutDirection, tabletRemoteOnRight ? .rightToLeft : .leftToRight)
+                .environment(\.layoutDirection, tabletControlDirection)
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -225,13 +225,24 @@ struct RemoteScreen: View {
                 .frame(maxWidth: 1008)
                 .environment(\.adaptiveKeyboardLayout, true)
         case .standard, .keypad:
-            RemoteModeLayout { navRow.frame(maxWidth: 480) } controls: {
+            RemoteModeLayout {
+                HStack(spacing: 12) {
+                    navRow.frame(maxWidth: 480)
+                    if !showsMedia {
+                        swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            } controls: {
                 ScrollView {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 24) {
                             pad.frame(width: 320, height: 320)
+                                .environment(\.layoutDirection, layoutDirection)
                             controls(book: false, tablet: true).frame(width: 192)
+                                .environment(\.layoutDirection, layoutDirection)
                         }
+                        .environment(\.layoutDirection, tabletControlDirection)
                         VStack(spacing: 18) {
                             pad.frame(maxWidth: 320).frame(height: 300)
                             controls(book: false, tablet: true).frame(maxWidth: 300)
@@ -257,6 +268,10 @@ struct RemoteScreen: View {
 
     private var tabletPadOnLeading: Bool {
         tabletRemoteOnRight != (layoutDirection == .leftToRight)
+    }
+
+    private var tabletControlDirection: LayoutDirection {
+        tabletRemoteOnRight ? .rightToLeft : .leftToRight
     }
 
     private func tabletMediaPanel(horizontal: Bool, showsSwap: Bool = true) -> some View {

@@ -337,8 +337,9 @@ final class LGDriver: TVDriver {
         }
     }
 
-    func sendText(_ text: String) {
-        request("ssap://com.webos.service.ime/insertText", ["text": text, "replace": 0])
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        request("ssap://com.webos.service.ime/insertText", ["text": text, "replace": 0]) != nil
     }
 
     func launch(_ app: TVApp) {

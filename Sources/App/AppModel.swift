@@ -199,8 +199,12 @@ final class AppModel: TVDriverDelegate {
         }
     }
 
-    private func activate(_ device: TVDevice) {
-        if currentID != device.id { resetKeyboardPad() }
+    private func activate(_ device: TVDevice, isRelocation: Bool = false) {
+        if isRelocation {
+            cancelPendingTypeDelete()
+        } else if currentID != device.id {
+            resetKeyboardPad()
+        }
         pairingFeedback.cancel()
         driver?.disconnect()
         relocateTask?.cancel()
@@ -377,7 +381,7 @@ final class AppModel: TVDriverDelegate {
         }
         DeviceStore.save(devices)
         remoteModes.move(from: device.id, to: moved.id)
-        activate(moved)
+        activate(moved, isRelocation: true)
     }
 
     /// Explicit user action — this is the only path that puts something on the TV screen.
@@ -460,12 +464,13 @@ final class AppModel: TVDriverDelegate {
         return sent
     }
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         if isConnectionPaused { reconnect() }
         #if os(iOS)
         remoteActivity.noteInteraction()
         #endif
-        driver?.sendText(text)
+        return driver?.sendText(text) == true
     }
 
     // MARK: Keyboard pad
@@ -481,19 +486,23 @@ final class AppModel: TVDriverDelegate {
 
     var typesLive: Bool { driver?.typesLive ?? true }
     var canSendTVDelete: Bool { !isConnectionPaused && supports(.backspace) }
+    var canReturnOnTV: Bool { typesLive && canSendKeyboardPadText && supports(.enter) }
 
-    /// Buffered TVs receive the complete draft. Live TVs receive only the new text.
-    func submitKeyboardPadText(_ text: String) {
-        if typesLive {
-            type(text)
-        } else {
-            cancelPendingTypeDelete()
-            typed = ""
-            #if DEBUG
-            recordDemoInput(text)
-            #endif
-            sendText(text)
+    private var canSendKeyboardPadText: Bool { state == .connected && !isConnectionPaused }
+
+    /// Keep the draft when a send cannot start, and count only accepted text for Clear.
+    func submitKeyboardPadText(_ text: String) -> Bool {
+        guard canSendKeyboardPadText else {
+            reconnect()
+            return false
         }
+        guard !text.isEmpty, sendText(text) else { return false }
+        cancelPendingTypeDelete()
+        typed = typesLive ? typed + text : ""
+        #if DEBUG
+        recordDemoInput(text)
+        #endif
+        return true
     }
 
     /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
@@ -553,6 +562,7 @@ final class AppModel: TVDriverDelegate {
     private func resetKeyboardPad() {
         cancelPendingTypeDelete()
         typed = ""
+        if keyboardSheetContinuesPadEditing { showingKeyboard = false }
     }
 
     /// Deletes what's been typed since the last Return.
