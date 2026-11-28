@@ -363,11 +363,11 @@ struct KeyboardPadView: View {
         }
     }
 
-    private func fullKeys(_ rows: [[String]], width: CGFloat, gap: CGFloat, inlineEditing: Bool,
-                          showsCharacterPreviews: Bool) -> some View {
+    @ViewBuilder private func fullKeys(_ rows: [[String]], width: CGFloat, gap: CGFloat, inlineEditing: Bool,
+                                       showsCharacterPreviews: Bool) -> some View {
         let wide = width * 1.5 + gap / 2
         let editingWidth = inlineEditing ? max(44, wide) : wide
-        return VStack(spacing: gap) {
+        let grid = VStack(spacing: gap) {
             ForEach(0..<(rows.count - 1), id: \.self) { i in
                 HStack(spacing: gap) {
                     characters(rows[i], width: width, showsPreviews: showsCharacterPreviews)
@@ -391,10 +391,14 @@ struct KeyboardPadView: View {
             }
         }
         .frame(maxHeight: CGFloat(rows.count + 1) * Self.maximumKeyHeight + CGFloat(rows.count) * gap)
-        .overlayPreferenceValue(PressedKeyboardCharacter.self) { key in
-            if let key { KeyboardCharacterPreview(key: key) }
+        if showsCharacterPreviews {
+            grid.overlayPreferenceValue(PressedKeyboardCharacter.self) { key in
+                if let key { KeyboardCharacterPreview(key: key) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            grid.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func narrowKeys(_ rows: [[String]]) -> some View {

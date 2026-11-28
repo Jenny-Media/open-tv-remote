@@ -221,18 +221,22 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .onDisappear { stopRepeating() }
     }
 
-    private func face(pressed: Bool) -> some View {
-        label()
+    @ViewBuilder private func face(pressed: Bool) -> some View {
+        let key = label()
             .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(KeySurface(shape: shape, pressed: pressed, tint: tint))
             .contentShape(shape)
             .scaleEffect(pressed ? 0.955 : 1)
             .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
-            .anchorPreference(key: PressedKeyboardCharacter.self, value: .bounds) { bounds in
-                guard pressed, showsCharacterPreview, enabled, isEnabled, let pressedCharacter else { return nil }
+        if showsCharacterPreview {
+            key.anchorPreference(key: PressedKeyboardCharacter.self, value: .bounds) { bounds in
+                guard pressed, enabled, isEnabled, let pressedCharacter else { return nil }
                 return PressedKeyboardCharacter(text: pressedCharacter, bounds: bounds)
             }
+        } else {
+            key
+        }
     }
 
     private func fire() {
