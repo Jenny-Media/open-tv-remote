@@ -101,7 +101,10 @@ struct DPadView: View {
 
 struct KeyboardPadView: View {
     enum PhoneLayout: Equatable {
-        case adaptive, portrait, foldedPortrait, wideLandscape
+        case adaptive, portrait, foldedPortrait, widePortrait, wideLandscape
+
+        var usesPortraitSpacing: Bool { self == .portrait || self == .widePortrait }
+        var allowsNumberRow: Bool { self == .widePortrait || self == .wideLandscape }
     }
 
     enum Layout {
@@ -114,13 +117,14 @@ struct KeyboardPadView: View {
 
     private static let defaultKeyGap: CGFloat = 6
     private static let maximumKeyHeight: CGFloat = 64
+    private static let minimumKeyHeight: CGFloat = 44
     private static let portraitKeyHeight: CGFloat = 52
     private static let portraitGridHeight = 4 * portraitKeyHeight + 3 * defaultKeyGap
     private static let portraitPadSize: CGFloat = 176
     private static let phoneClearHeight: CGFloat = 48
     private static let phoneClearWidth: CGFloat = 60
     private static let phoneClearSideInset: CGFloat = phoneClearWidth + 12
-    static let minimumPhoneKeyGridHeight: CGFloat = 4 * 44 + 3 * defaultKeyGap
+    static let minimumPhoneKeyGridHeight = 4 * minimumKeyHeight + 3 * defaultKeyGap
     static let minimumTabletKeyGridWidth: CGFloat = 10 * 44 + 9 * defaultKeyGap
 
     private enum Layer { case letters, numbers, symbols }
@@ -175,7 +179,7 @@ struct KeyboardPadView: View {
             let width = viewport.size.width
             let height = viewport.size.height
             let sideBySide = posture == .adaptive && width >= 480 && height < 360
-            let isPortrait = posture == .portrait
+            let isPortrait = posture.usesPortraitSpacing
             let padWidthLimit = max(60, width - 72)
             let compactPadSize = sideBySide ? min(108, max(64, height - Self.phoneClearHeight - 8))
                                             : min(132, padWidthLimit)
@@ -189,17 +193,24 @@ struct KeyboardPadView: View {
             if height < minimumHeight {
                 shortPhoneKeyboard(height: height)
             } else {
-                let extraHeight = height - minimumHeight
                 let preferredPadSize = portraitClearFits ? Self.portraitPadSize : 150
-                let padSize = isPortrait ? min(preferredPadSize, padWidthLimit, compactPadSize + extraHeight)
+                let minimumNumberRowHeight = Self.minimumKeyHeight + gap
+                let extraHeight = height - minimumHeight
+                let spaceForLargerPad = isPortrait ? preferredPadSize - compactPadSize : 0
+                let showsNumberRow = posture.allowsNumberRow && extraHeight >= minimumNumberRowHeight + spaceForLargerPad
+                let spaceForNumberRow = showsNumberRow ? minimumNumberRowHeight : 0
+                let remainingHeight = extraHeight - spaceForNumberRow
+                let padSize = isPortrait ? min(preferredPadSize, padWidthLimit, compactPadSize + remainingHeight)
                                          : compactPadSize
+                let portraitGridHeight = Self.portraitGridHeight + (showsNumberRow ? Self.portraitKeyHeight + gap : 0)
                 // Reserve the preferred key rows before distributing spare portrait height.
-                let portraitRoom = isPortrait
-                    ? max(0, extraHeight - (padSize - compactPadSize) - (Self.portraitGridHeight - Self.minimumPhoneKeyGridHeight))
-                    : 0
+                let minimumGridHeight = Self.minimumPhoneKeyGridHeight + spaceForNumberRow
+                let preferredSpacingHeight = (padSize - compactPadSize) + (portraitGridHeight - minimumGridHeight)
+                let portraitRoom = isPortrait ? max(0, remainingHeight - preferredSpacingHeight) : 0
                 let navigationSpacing = isPortrait ? 22 + (stackedNavigation ? 0 : min(40, portraitRoom / 3)) : 10
                 phoneKeyboardContent(posture, sideBySide: sideBySide, stackedNavigation: stackedNavigation,
-                                     padSize: padSize, navigationSpacing: navigationSpacing)
+                                     padSize: padSize, navigationSpacing: navigationSpacing,
+                                     showsNumberRow: showsNumberRow, portraitGridHeight: portraitGridHeight)
                     .padding(.bottom, min(24, portraitRoom / 3))
             }
         }
@@ -232,7 +243,8 @@ struct KeyboardPadView: View {
 
     @ViewBuilder private func phoneKeyboardContent(_ posture: PhoneLayout, sideBySide: Bool,
                                                    stackedNavigation: Bool, padSize: CGFloat,
-                                                   navigationSpacing: CGFloat) -> some View {
+                                                   navigationSpacing: CGFloat, showsNumberRow: Bool,
+                                                   portraitGridHeight: CGFloat) -> some View {
         if sideBySide {
             HStack(spacing: 12) {
                 VStack(spacing: 8) {
@@ -242,11 +254,12 @@ struct KeyboardPadView: View {
                 keyGrid(tablet: false)
             }
         } else {
-            let isPortrait = posture == .portrait
+            let isPortrait = posture.usesPortraitSpacing
             VStack(spacing: navigationSpacing) {
                 phoneKeyboardNavigation(posture, stacked: stackedNavigation, padSize: padSize)
-                keyGrid(tablet: false, showsCharacterPreviews: isPortrait || posture == .foldedPortrait)
-                    .frame(maxHeight: isPortrait ? Self.portraitGridHeight : .infinity)
+                keyGrid(tablet: false, addsNumberRow: showsNumberRow,
+                        showsCharacterPreviews: isPortrait || posture == .foldedPortrait)
+                    .frame(maxHeight: isPortrait ? portraitGridHeight : .infinity)
             }
             .frame(maxHeight: .infinity, alignment: isPortrait ? .bottom : .center)
         }
@@ -255,7 +268,7 @@ struct KeyboardPadView: View {
     @ViewBuilder private func phoneKeyboardNavigation(_ posture: PhoneLayout, stacked: Bool, padSize: CGFloat) -> some View {
         let pad = DPadView().frame(width: padSize, height: padSize)
         switch posture {
-        case .portrait, .foldedPortrait:
+        case .portrait, .foldedPortrait, .widePortrait:
             if stacked {
                 VStack(spacing: 10) {
                     pad
@@ -285,9 +298,10 @@ struct KeyboardPadView: View {
         }
     }
 
-    private func keyGrid(tablet: Bool, inlineEditing: Bool = true, showsCharacterPreviews: Bool = false) -> some View {
+    private func keyGrid(tablet: Bool, inlineEditing: Bool = true, addsNumberRow: Bool = false,
+                         showsCharacterPreviews: Bool = false) -> some View {
         GeometryReader { geo in
-            let showsNumberRow = !inlineEditing || (tablet && geo.size.width >= Self.minimumTabletKeyGridWidth)
+            let showsNumberRow = addsNumberRow || !inlineEditing || (tablet && geo.size.width >= Self.minimumTabletKeyGridWidth)
             let rows = self.rows(numberRow: showsNumberRow, inlineEditing: inlineEditing)
             // Use any extra width for spacing once all ten letter keys have 44-point targets.
             let extraWidth = max(0, geo.size.width - Self.minimumTabletKeyGridWidth)

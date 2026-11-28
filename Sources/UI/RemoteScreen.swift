@@ -92,6 +92,8 @@ struct RemoteScreen: View {
             let mediaPin = hasTabletMedia && !bottomMedia && !sideMedia ? $tabletMediaPinned : nil
             let wide = UIDevice.current.userInterfaceIdiom == .phone && usesSystemToolbar && layout.hasWideFlatSurface
             let phoneKeyboardLayout: KeyboardPadView.PhoneLayout = switch layout.arrangement {
+            case .compact where layout.isFlat && layout.controls.width >= 500 && layout.controls.height > layout.controls.width:
+                .widePortrait
             case .compact where layout.controls.height > layout.controls.width:
                 usesSystemToolbar && layout.controls.width < 500 ? .foldedPortrait : .portrait
             case .compact where layout.hasWideFlatSurface:

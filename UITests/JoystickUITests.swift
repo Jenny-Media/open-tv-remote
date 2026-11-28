@@ -1226,10 +1226,42 @@ final class JoystickUITests: XCTestCase {
         XCTAssertGreaterThan(window.width, window.height)
         assertKeyboardEditingKeys()
         assertKeyboardAbovePageSwitcher()
+        assertDuoNumberRowAboveLetters()
         let letterRow = app.buttons["q"].frame.union(app.buttons["p"].frame)
         XCTAssertGreaterThan(letterRow.width, 0.80 * window.width)
         XCTAssertLessThan(app.buttons["OK"].frame.maxY, letterRow.minY)
         captureKeyboard("iPhone Duo open landscape keyboard")
+    }
+
+    func testFlatDuoPortraitKeyboardShowsANumberRow() throws {
+        try requireDuoPosture("flat-portrait")
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard"])
+        XCTAssertTrue(app.buttons["Space"].waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(window.height, window.width)
+        assertKeyboardEditingKeys()
+        assertKeyboardAbovePageSwitcher()
+        assertDuoNumberRowAboveLetters()
+
+        let ok = app.buttons["OK"]
+        let clear = app.buttons["Clear"]
+        let numberRow = app.buttons["1"].frame.union(app.buttons["0"].frame)
+        XCTAssertEqual(ok.frame.midX, numberRow.midX, accuracy: 1)
+        XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
+        XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
+        XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
+        XCTAssertLessThan(app.buttons["Down"].frame.maxY, numberRow.minY)
+        captureKeyboard("iPhone Duo open portrait keyboard")
+    }
+
+    private func assertDuoNumberRowAboveLetters() {
+        let firstLetter = app.buttons["q"]
+        for digit in "1234567890" {
+            let key = app.buttons[String(digit)]
+            XCTAssertTrue(key.isHittable, "Number \(digit) should be directly reachable")
+            XCTAssertGreaterThanOrEqual(key.frame.height, 43.5)
+            XCTAssertLessThan(key.frame.maxY, firstLetter.frame.minY)
+        }
     }
 
     private func assertVolumeControlsInGestureModes(isLandscape: Bool) throws {
