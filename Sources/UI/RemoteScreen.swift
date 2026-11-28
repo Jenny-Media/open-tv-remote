@@ -307,17 +307,7 @@ struct RemoteScreen: View {
                     ScrollView {
                         VStack(spacing: 8) {
                             tabletopTVStatus(prominent: false)
-                            tabletopMedia(groupsSideBySide: groupsSideBySide)
-                            VStack(spacing: 12) {
-                                navRow
-                                HStack(spacing: 12) {
-                                    DPadView().frame(width: 108, height: 108)
-                                    KeyboardClearButton().frame(width: 60, height: 48)
-                                }
-                            }
-                            .frame(maxWidth: 440)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 8)
+                            tabletopKeyboardNavigation
                         }
                         .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottom)
                     }
@@ -339,6 +329,36 @@ struct RemoteScreen: View {
             }
         }
         .accessibilityIdentifier("remoteTVStatusPane")
+    }
+
+    private var tabletopKeyboardNavigation: some View {
+        VStack(spacing: 12) {
+            navRow
+            if model.current != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 24) {
+                        tabletopDirectionPad
+                        DuoQuickControls().frame(width: 166)
+                    }
+                    VStack(spacing: 12) {
+                        DuoQuickControls()
+                        tabletopDirectionPad
+                    }
+                }
+            } else {
+                tabletopDirectionPad
+            }
+        }
+        .frame(maxWidth: 440)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
+    }
+
+    private var tabletopDirectionPad: some View {
+        VStack(spacing: 8) {
+            DPadView().frame(width: 156, height: 156)
+            KeyboardClearButton().frame(width: 64, height: 44)
+        }
     }
 
     private func tabletopTVStatus(prominent: Bool) -> some View {

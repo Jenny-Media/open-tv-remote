@@ -808,13 +808,19 @@ final class JoystickUITests: XCTestCase {
         let letterRow = q.frame.union(app.buttons["p"].frame)
         XCTAssertGreaterThan(letterRow.width, app.windows.firstMatch.frame.width * 0.85)
         XCTAssertGreaterThanOrEqual(q.frame.height, 43.5)
-        XCTAssertTrue(app.buttons["OK"].isHittable)
+        let ok = app.buttons["OK"]
+        XCTAssertTrue(ok.isHittable)
+        XCTAssertGreaterThanOrEqual(ok.frame.width, 60)
         XCTAssertLessThan(app.buttons["Down"].frame.maxY, letterRow.minY)
         XCTAssertLessThan(app.buttons["Clear"].frame.maxY, letterRow.minY)
         XCTAssertLessThan(app.buttons["Home"].frame.maxY, letterRow.minY)
         XCTAssertFalse(app.buttons["tabletopKeyboardSheet"].exists)
+        let volume = app.buttons["Volume down"]
         let play = app.buttons["Play or pause"]
+        XCTAssertTrue(volume.isHittable)
         XCTAssertTrue(play.isHittable)
+        XCTAssertLessThan(app.buttons["Right"].frame.maxX, volume.frame.minX)
+        XCTAssertLessThan(volume.frame.maxY, play.frame.minY)
         XCTAssertLessThan(play.frame.maxY, letterRow.minY)
         captureKeyboard("iPhone Duo Tabletop keyboard")
     }
