@@ -444,6 +444,23 @@ final class JoystickUITests: XCTestCase {
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
+    func testNarrowIPhonePortraitKeyboardKeepsClearBelowTheDPad() throws {
+        try requireStandardIPhone()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard", "-demoKeyboardWidth", "310"])
+
+        XCTAssertTrue(app.buttons["Space"].waitForExistence(timeout: 5))
+        assertKeyboardEditingKeys()
+        assertKeyboardAbovePageSwitcher()
+        assertClearBelowDPad()
+        let keys = app.buttons["q"].frame.union(app.buttons["p"].frame)
+        XCTAssertEqual(app.buttons["OK"].frame.midX, keys.midX, accuracy: 1)
+        XCTAssertEqual(keys.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
+    }
+
     private func requireStandardIPhone() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
         let environment = ProcessInfo.processInfo.environment
@@ -503,14 +520,12 @@ final class JoystickUITests: XCTestCase {
             if orientation.isPortrait {
                 let keyRow = app.buttons["q"].frame.union(app.buttons["p"].frame)
                 XCTAssertEqual(ok.frame.midX, keyRow.midX, accuracy: 1)
-                if folded {
-                    let clear = app.buttons["Clear"]
-                    XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
-                    XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
-                } else {
-                    XCTAssertEqual(ok.frame.width, 60, accuracy: 1)
-                    assertClearBelowDPad()
-                    XCTAssertEqual(keyRow.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
+                let clear = app.buttons["Clear"]
+                XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
+                XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
+                if !folded {
+                    XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
+                    XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, 176 / 2 + 11)
                 }
             } else {
                 assertClearBelowDPad()
