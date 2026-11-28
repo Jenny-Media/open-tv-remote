@@ -150,7 +150,6 @@ struct RemoteScreen: View {
                     }
                 }
                 DuoQuickControls(showsInput: true)
-                    .id(model.remoteControlMode)
                 swapSidesButton(remoteOnRight: $bookRemoteOnRight, identifier: "bookSwapSides")
             }
             .frame(maxWidth: 300)
@@ -319,7 +318,6 @@ struct RemoteScreen: View {
             if model.current != nil {
                 // Keep media keys next to the hinge when status appears, wraps, or scrolls.
                 DuoQuickControls(groupsSideBySide: groupsSideBySide)
-                    .id(model.remoteControlMode)
                     .frame(maxWidth: 440)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -779,6 +777,8 @@ struct DuoQuickControls: View {
                 }
             }
             .id(device.id)
+            // A mode change ends any press held on the shared media controls.
+            .id(model.remoteControlMode)
         }
     }
 

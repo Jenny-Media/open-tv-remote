@@ -349,6 +349,11 @@ final class JoystickUITests: XCTestCase {
 
     func testIPhoneKeyboardFitsPortraitAndLandscape() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
+        let environment = ProcessInfo.processInfo.environment
+        // The model identifier also covers Duo runs without a posture fixture.
+        try XCTSkipIf(environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4" ||
+                      environment["OPEN_REMOTE_DUO_POSTURE"] != nil,
+                      "Duo uses its posture-specific keyboard tests.")
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
