@@ -82,7 +82,7 @@ struct RemoteScreen: View {
                         tabletopKeyboardPane
                     } else {
                         VStack(spacing: 12) {
-                            remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
+                            remote(showHeader: !tabletop && !book, tabletop: tabletop, book: book, wide: wide,
                                    compactHeight: tabletop || layout.usesTrailingShortcuts,
                                    showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
                                    tablet: tablet, tabletLandscape: tablet && layout.controls.width > layout.controls.height,
@@ -154,6 +154,7 @@ struct RemoteScreen: View {
     private var bookControls: some View {
         ScrollView {
             VStack(spacing: 16) {
+                remoteHeader(showTV: true, showsShortcuts: false)
                 if !usesSystemToolbar {
                     ViewThatFits(in: .horizontal) {
                         TopBar(showsTVSelection: false).fixedSize(horizontal: true, vertical: false)
@@ -324,7 +325,7 @@ struct RemoteScreen: View {
                     ScrollView {
                         VStack(spacing: 8) {
                             tabletopTVStatus(prominent: false)
-                            tabletopKeyboardNavigation
+                            tabletopKeyboardControls
                                 #if DEBUG
                                 .frame(maxWidth: DemoMode.shortTabletopCompanionWidth ?? .infinity)
                                 #endif
@@ -351,9 +352,8 @@ struct RemoteScreen: View {
         .accessibilityIdentifier("remoteTVStatusPane")
     }
 
-    private var tabletopKeyboardNavigation: some View {
+    private var tabletopKeyboardControls: some View {
         VStack(spacing: 12) {
-            navRow
             if model.current != nil {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 0) {
@@ -419,19 +419,23 @@ struct RemoteScreen: View {
     }
 
     private var tabletopKeyboardPane: some View {
-        GeometryReader { viewport in
-            Group {
-                if viewport.size.height >= KeyboardPadView.minimumPhoneKeyGridHeight {
-                    KeyboardPadView(layout: .phoneKeys)
-                        .environment(\.adaptiveKeyboardLayout, true)
-                } else {
-                    KeyboardSheetButton().accessibilityIdentifier("tabletopKeyboardSheet")
+        RemoteModeLayout {
+            navRow
+        } controls: {
+            GeometryReader { viewport in
+                Group {
+                    if viewport.size.height >= KeyboardPadView.minimumPhoneKeyGridHeight {
+                        KeyboardPadView(layout: .phoneKeys)
+                            .environment(\.adaptiveKeyboardLayout, true)
+                    } else {
+                        KeyboardSheetButton().accessibilityIdentifier("tabletopKeyboardSheet")
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
         .overlay(alignment: .bottomTrailing) { inputLog }
     }
 
@@ -500,7 +504,7 @@ struct RemoteScreen: View {
                 JoystickScreen(compactHeight: compactHeight)
             case .cursor:
                 #if os(iOS)
-                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop,
+                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop, tabletop: tabletop,
                              scrollStripOnLeading: tabletLandscape && tabletPadOnLeading,
                              swapSides: tabletLandscape ? { tabletRemoteOnRight.toggle() } : nil)
                 #else
