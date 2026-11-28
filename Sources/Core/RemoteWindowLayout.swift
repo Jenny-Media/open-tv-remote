@@ -10,6 +10,7 @@ struct RemoteWindowLayout {
     let controls: CGRect
     let companion: CGRect?
     let arrangement: Arrangement
+    let isFlat: Bool
     let hasWideFlatSurface: Bool
 
     var usesTrailingShortcuts: Bool {
@@ -68,7 +69,8 @@ struct RemoteWindowLayout {
         controls = Self.avoiding(occlusions, in: remote)
         companion = extra.map { Self.avoiding(occlusions, in: $0) }
         self.arrangement = arrangement
-        hasWideFlatSurface = division == nil && controls.width >= 640 && controls.height >= 440 &&
+        isFlat = division == nil
+        hasWideFlatSurface = isFlat && controls.width >= 640 && controls.height >= 440 &&
             controls.width > controls.height
     }
 

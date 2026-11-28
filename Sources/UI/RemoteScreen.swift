@@ -45,6 +45,7 @@ struct RemoteScreen: View {
     @AppStorage("duo.bookRemoteOnRight") private var bookRemoteOnRight = false
     @AppStorage("ipad.remoteOnRight") private var tabletRemoteOnRight = false
     @AppStorage("ipad.mediaControlsPinned") private var tabletMediaPinned = false
+    @State private var tabletopKeyboardHeaderHeight: CGFloat = 144
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #endif
 
@@ -92,6 +93,8 @@ struct RemoteScreen: View {
             let mediaPin = hasTabletMedia && !bottomMedia && !sideMedia ? $tabletMediaPinned : nil
             let wide = UIDevice.current.userInterfaceIdiom == .phone && usesSystemToolbar && layout.hasWideFlatSurface
             let phoneKeyboardLayout: KeyboardPadView.PhoneLayout = switch layout.arrangement {
+            case .compact where layout.isFlat && layout.controls.width >= 500 && layout.controls.height > layout.controls.width:
+                .widePortrait
             case .compact where layout.controls.height > layout.controls.width:
                 usesSystemToolbar && layout.controls.width < 500 ? .foldedPortrait : .portrait
             case .compact where layout.hasWideFlatSurface:
@@ -238,7 +241,10 @@ struct RemoteScreen: View {
                             ScrollView {
                                 VStack(spacing: 18) {
                                     if keyboard {
-                                        TabletKeyboardNavigation()
+                                        let padSize = min(224, max(0, panel.size.width - 12),
+                                                          max(TabletKeyboardNavigation.minimumPadSize,
+                                                              panel.size.height - (showsMedia ? 320 : 128)))
+                                        TabletKeyboardNavigation(padSize: padSize)
                                     }
                                     if showsMedia {
                                         tabletMediaPanel(horizontal: false, showsSwap: !keyboard)
@@ -371,10 +377,10 @@ struct RemoteScreen: View {
                     ScrollView {
                         VStack(spacing: 8) {
                             tabletopTVStatus(prominent: false)
-                            tabletopKeyboardControls
-                                #if DEBUG
-                                .frame(maxWidth: DemoMode.shortTabletopCompanionWidth ?? .infinity)
-                                #endif
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                    tabletopKeyboardHeaderHeight = $0
+                                }
+                            tabletopKeyboardControls(in: geometry.size)
                         }
                         .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottom)
                     }
@@ -398,38 +404,51 @@ struct RemoteScreen: View {
         .accessibilityIdentifier("remoteTVStatusPane")
     }
 
-    private var tabletopKeyboardControls: some View {
-        VStack(spacing: 12) {
+    private func tabletopKeyboardControls(in viewport: CGSize) -> some View {
+        #if DEBUG
+        let width = min(viewport.width, DemoMode.shortTabletopCompanionWidth ?? .infinity)
+        #else
+        let width = viewport.width
+        #endif
+        let mediaWidth: CGFloat = 166
+        let minimumGap: CGFloat = 24
+        let compactSize: CGFloat = 156
+        let controlsWidth = min(440, max(0, width - 40))
+        // Keep the TV picker and Clear visible when the upper pane has room for them.
+        let heightForPad = viewport.height - tabletopKeyboardHeaderHeight - 68
+        let sideBySideSize = max(compactSize, min(210, controlsWidth - mediaWidth - minimumGap, heightForPad))
+        let stackedSize = min(210, controlsWidth, max(compactSize, heightForPad - (model.current == nil ? 0 : 128)))
+        return VStack(spacing: 12) {
             if model.current != nil {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 0) {
                         DuoQuickControls()
-                            .frame(width: 166)
+                            .frame(width: mediaWidth)
                             .environment(\.layoutDirection, layoutDirection)
-                        Spacer(minLength: 24)
+                        Spacer(minLength: minimumGap)
                             .frame(maxWidth: 64)
-                        tabletopDirectionPad
+                        tabletopDirectionPad(size: sideBySideSize)
                             .environment(\.layoutDirection, layoutDirection)
                     }
                     // Keep the D-pad on the physical right in every language.
                     .environment(\.layoutDirection, .leftToRight)
                     VStack(spacing: 12) {
                         DuoQuickControls()
-                        tabletopDirectionPad
+                        tabletopDirectionPad(size: stackedSize)
                     }
                 }
             } else {
-                tabletopDirectionPad
+                tabletopDirectionPad(size: stackedSize)
             }
         }
-        .frame(maxWidth: 440)
+        .frame(maxWidth: controlsWidth)
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
     }
 
-    private var tabletopDirectionPad: some View {
+    private func tabletopDirectionPad(size: CGFloat) -> some View {
         VStack(spacing: 8) {
-            DPadView().frame(width: 156, height: 156)
+            DPadView().frame(width: size, height: size)
             KeyboardClearButton().frame(width: 64, height: 44)
         }
     }
@@ -670,11 +689,13 @@ struct RemoteScreen: View {
             let hasPortraitRoom = stacked && viewport.size.height > viewport.size.width
             let spacingScale = hasPortraitRoom ? min(1, max(0, (viewport.size.height - 680) / 320)) : 0
             let controlsSpacing = 12 + 18 * spacingScale
-            let typingAreaOffset = stacked ? TabletKeyboardNavigation.height + controlsSpacing : 0
+            let minimumPadSize = TabletKeyboardNavigation.minimumPadSize
+            let typingAreaOffset = stacked ? minimumPadSize + TabletKeyboardNavigation.editingHeight + controlsSpacing : 0
+            let padLimit = stacked ? min(240, max(minimumPadSize, width * 0.33)) : minimumPadSize
             let rowCount: CGFloat = width >= KeyboardPadView.minimumTabletKeyGridWidth ? 5 : 4
             let rowSpacing = (rowCount - 1) * 9
             let minimumPadHeight = typingAreaOffset + rowCount * 44 + rowSpacing
-            let maximumPadHeight = typingAreaOffset + rowCount * 64 + rowSpacing
+            let maximumPadHeight = typingAreaOffset + rowCount * 64 + rowSpacing + padLimit - minimumPadSize
             // Leave the D-pad and keyboard anchored as the pinned media group moves up.
             let mediaLift = hasPortraitRoom && showsMedia ? min(56, max(0, (viewport.size.height - 860) / 6)) : 0
             VStack(spacing: 12 + 30 * spacingScale) {
@@ -687,9 +708,11 @@ struct RemoteScreen: View {
                 }
                 #endif
                 GeometryReader { keyboard in
+                    let spareHeight = max(0, keyboard.size.height - typingAreaOffset - rowCount * 56 - rowSpacing)
+                    let padSize = min(padLimit, minimumPadSize + spareHeight)
                     ScrollView {
                         KeyboardPadView(layout: stacked
-                            ? .stackedTablet(controlsSpacing: controlsSpacing) : .tabletKeys)
+                            ? .stackedTablet(controlsSpacing: controlsSpacing, padSize: padSize) : .tabletKeys)
                             .frame(height: max(minimumPadHeight, keyboard.size.height))
                     }
                     .scrollBounceBehavior(.basedOnSize)

@@ -126,6 +126,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var holdName = "Hold"
     var repeatAction: ((RemoteInputRequest) async -> Void)? = nil
     var repeatRequiresCurrentConnection = true
+    var showsCharacterPreview = false
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
@@ -140,6 +141,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     @State private var repeatTask: Task<Void, Never>?
     @State private var repeatRequest: RemoteInputRequest?
     @State private var held = false
+    @State private var pressedCharacter: String?
     #if os(iOS)
     @State private var holdHighlighted = false
     #endif
@@ -147,7 +149,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var body: some View {
         interaction
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilityLabel)
+            .accessibilityLabel(dragPress == .inside ? pressedCharacter ?? accessibilityLabel : accessibilityLabel)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { fire() }
             .accessibilityActions {
@@ -195,7 +197,10 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             )
             .onChange(of: dragPress == .inside) { _, isPressed in
                 stopRepeating()
-                guard isPressed, enabled, isEnabled else { return }
+                guard isPressed, enabled, isEnabled else {
+                    pressedCharacter = nil
+                    return
+                }
                 if let holdAction {
                     held = false
                     repeatTask = Task { @MainActor in
@@ -206,6 +211,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                     }
                     return
                 }
+                if showsCharacterPreview { pressedCharacter = accessibilityLabel }
                 fire()
                 if let repeatAction { startRepeating(repeatAction) }
             }
@@ -218,14 +224,28 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .onDisappear { stopRepeating() }
     }
 
-    private func face(pressed: Bool) -> some View {
-        label()
+    @ViewBuilder private func face(pressed: Bool) -> some View {
+        let key = Group {
+            if pressed, let pressedCharacter {
+                Text(pressedCharacter)
+            } else {
+                label()
+            }
+        }
             .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(KeySurface(shape: shape, pressed: pressed, tint: tint))
             .contentShape(shape)
             .scaleEffect(pressed ? 0.955 : 1)
             .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
+        if showsCharacterPreview {
+            key.anchorPreference(key: PressedKeyboardCharacter.self, value: .bounds) { bounds in
+                guard pressed, enabled, isEnabled, let pressedCharacter else { return nil }
+                return PressedKeyboardCharacter(text: pressedCharacter, bounds: bounds)
+            }
+        } else {
+            key
+        }
     }
 
     private func fire() {
