@@ -13,12 +13,12 @@ struct RemoteScreen: View {
     }
     @FocusState private var focused: Bool
     @State private var heldHardwareKeys: Set<Character> = []
+    @Environment(\.layoutDirection) private var layoutDirection
     #if os(iOS)
     @AppStorage("duo.bookRemoteOnRight") private var bookRemoteOnRight = false
     @AppStorage("ipad.remoteOnRight") private var tabletRemoteOnRight = false
     @AppStorage("ipad.mediaControlsPinned") private var tabletMediaPinned = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.layoutDirection) private var layoutDirection
     #endif
 
     var body: some View {
@@ -569,15 +569,36 @@ struct RemoteScreen: View {
     }
 
     private func standardMode(compactHeight: Bool, tabletop: Bool, book: Bool, wide: Bool, tablet: Bool) -> some View {
-        RemoteModeLayout { navRow } controls: {
+        let usesCompactPad = compactHeight && mode != .keyboard
+        return RemoteModeLayout {
+            #if os(iOS)
+            if tablet && usesCompactPad {
+                HStack(spacing: 8) {
+                    navRow
+                    swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                        .labelStyle(.iconOnly)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            } else {
+                navRow
+            }
+            #else
+            navRow
+            #endif
+        } controls: {
             if wide && mode == .dpad {
                 wideDirectionalControls
-            } else if compactHeight && mode != .keyboard {
+            } else if usesCompactPad {
                 ScrollView {
                     HStack(alignment: .top, spacing: 16) {
                         pad.frame(height: 192)
+                            .environment(\.layoutDirection, layoutDirection)
                         controls(book: book, tabletop: tabletop, tablet: tablet)
+                            .environment(\.layoutDirection, layoutDirection)
                     }
+                    #if os(iOS)
+                    .environment(\.layoutDirection, tablet ? tabletControlDirection : layoutDirection)
+                    #endif
                     .padding(.horizontal, 5)
                     .padding(.bottom, 12)
                 }

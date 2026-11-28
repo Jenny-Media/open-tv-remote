@@ -199,8 +199,8 @@ private struct Pager: View {
         #endif
     }
 
-    @ViewBuilder private var pages: some View {
-        let pager = ScrollView(.horizontal) {
+    private var pages: some View {
+        ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { (page ?? 0) == 0 })
                     .containerRelativeFrame(.horizontal)
@@ -215,13 +215,9 @@ private struct Pager: View {
         .scrollPosition(id: $page)
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
-
-        if usesSystemToolbar {
-            // Keep the neighboring page out of the Duo's toolbar area.
-            pager.clipped().contentShape(Rectangle())
-        } else {
-            pager
-        }
+        // Keep Watch inside the pager without replacing the Remote screen when the Duo's toolbar moves.
+        .clipped()
+        .contentShape(Rectangle())
     }
 }
 

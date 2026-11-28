@@ -159,7 +159,7 @@ final class AppModel: TVDriverDelegate {
         DeviceStore.save(devices)
         guard let previous, current == nil else { return }
         if let moved = devices.first(where: { $0.brand == previous.brand && $0.name == previous.name }) {
-            activate(moved)
+            activate(moved, isRelocation: true)
         } else {
             forget(previous)
         }
@@ -505,14 +505,15 @@ final class AppModel: TVDriverDelegate {
         return true
     }
 
-    /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
+    /// Live keys count toward Clear once the driver accepts them. Buffered keyboards edit a local draft.
     func type(_ text: String) {
+        guard !text.isEmpty else { return }
         cancelPendingTypeDelete()
+        guard !typesLive || sendText(text) else { return }
+        typed += text
         #if DEBUG
         recordDemoInput(text)
         #endif
-        typed += text
-        if typesLive { sendText(text) }
     }
 
     func typeDelete() {
@@ -578,8 +579,8 @@ final class AppModel: TVDriverDelegate {
         cancelPendingTypeDelete()
         if typesLive {
             press(.enter)
-        } else if !typed.isEmpty {
-            sendText(typed)
+        } else if !typed.isEmpty && !sendText(typed) {
+            return
         }
         typed = ""
     }
