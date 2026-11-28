@@ -115,11 +115,14 @@ final class RokuDriver: TVDriver {
         }
     }
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
         for scalar in text.unicodeScalars {
             let encoded = String(scalar).addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
             enqueue("keypress/Lit_\(encoded)")
         }
+        return true
     }
 
     func launch(_ app: TVApp) {

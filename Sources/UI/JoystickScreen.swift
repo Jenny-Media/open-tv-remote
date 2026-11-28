@@ -5,10 +5,13 @@ struct JoystickScreen: View {
     @AppStorage("page") private var page = 0
 
     var compactHeight = false
+    var navigationAlignment: Alignment?
+    var swapSides: (() -> Void)?
 
     var body: some View {
         JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && page == 0,
                          sessionID: model.currentID, inputLog: inputLog, compactHeight: compactHeight,
+                         navigationAlignment: navigationAlignment, swapSides: swapSides,
                          mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                          modes: model.availableRemoteModes) { key, request in
             guard model.remoteInputAvailable, page == 0, model.remoteControlMode == .eyesFree, !request.isCancelled else { return }
@@ -48,6 +51,8 @@ private struct JoystickControls: View {
     let sessionID: String?
     let inputLog: String?
     let compactHeight: Bool
+    let navigationAlignment: Alignment?
+    let swapSides: (() -> Void)?
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
     @State private var input = JoystickGesture()
@@ -56,6 +61,7 @@ private struct JoystickControls: View {
     @State private var ignoreUntilLift = false
 
     init(tvName: String, enabled: Bool, sessionID: String?, inputLog: String? = nil, compactHeight: Bool = false,
+         navigationAlignment: Alignment? = nil, swapSides: (() -> Void)? = nil,
          mode: Binding<RemoteControlMode> = .constant(.eyesFree), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (RemoteKey, RemoteInputRequest) async -> Void) {
         self.tvName = tvName
@@ -63,15 +69,34 @@ private struct JoystickControls: View {
         self.sessionID = sessionID
         self.inputLog = inputLog
         self.compactHeight = compactHeight
+        self.navigationAlignment = navigationAlignment
+        self.swapSides = swapSides
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: JoystickSender(send: send))
     }
 
     var body: some View {
-        RemoteModeLayout {
-            RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
-                                back: { press(.back) }, home: { press(.home) })
+        RemoteModeLayout(spacing: navigationAlignment == nil ? 12 : 16) {
+            HStack(spacing: 8) {
+                RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
+                                    back: { press(.back) }, home: { press(.home) })
+                if let swapSides {
+                    Button {
+                        Haptics.tap()
+                        swapSides()
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .frame(width: 48, height: 54)
+                            .background(KeySurface(shape: RoundedRectangle(cornerRadius: 18)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Swap Sides")
+                    .accessibilityIdentifier("ipadSwapSides")
+                }
+            }
+            .frame(maxWidth: navigationAlignment == nil ? .infinity : 440)
+            .frame(maxWidth: .infinity, alignment: navigationAlignment ?? .center)
         } controls: {
             joystickSurface
         }

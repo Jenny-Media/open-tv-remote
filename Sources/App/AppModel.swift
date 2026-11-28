@@ -17,6 +17,7 @@ final class AppModel: TVDriverDelegate {
 
     var showingDevices = false
     var showingKeyboard = false
+    private(set) var keyboardSheetContinuesPadEditing = false
     var showingApps = false
     var showingSettings = false
     var showingRemoteGuide = false
@@ -109,7 +110,7 @@ final class AppModel: TVDriverDelegate {
             switch DemoMode.sheet {
             case "apps": showingApps = true
             case "devices": showingDevices = true
-            case "keyboard": showingKeyboard = true
+            case "keyboard": showKeyboard()
             case "settings": showingSettings = true
             default: break
             }
@@ -158,7 +159,7 @@ final class AppModel: TVDriverDelegate {
         DeviceStore.save(devices)
         guard let previous, current == nil else { return }
         if let moved = devices.first(where: { $0.brand == previous.brand && $0.name == previous.name }) {
-            activate(moved)
+            activate(moved, isRelocation: true)
         } else {
             forget(previous)
         }
@@ -183,6 +184,7 @@ final class AppModel: TVDriverDelegate {
         devices.removeAll { $0.id == device.id }
         DeviceStore.save(devices)
         if device.id == currentID {
+            resetKeyboardPad()
             pairingFeedback.cancel()
             driver?.disconnect()
             driver = nil
@@ -197,7 +199,12 @@ final class AppModel: TVDriverDelegate {
         }
     }
 
-    private func activate(_ device: TVDevice) {
+    private func activate(_ device: TVDevice, isRelocation: Bool = false) {
+        if isRelocation {
+            cancelPendingTypeDelete()
+        } else if currentID != device.id {
+            resetKeyboardPad()
+        }
         pairingFeedback.cancel()
         driver?.disconnect()
         relocateTask?.cancel()
@@ -374,7 +381,7 @@ final class AppModel: TVDriverDelegate {
         }
         DeviceStore.save(devices)
         remoteModes.move(from: device.id, to: moved.id)
-        activate(moved)
+        activate(moved, isRelocation: true)
     }
 
     /// Explicit user action — this is the only path that puts something on the TV screen.
@@ -457,15 +464,21 @@ final class AppModel: TVDriverDelegate {
         return sent
     }
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         if isConnectionPaused { reconnect() }
         #if os(iOS)
         remoteActivity.noteInteraction()
         #endif
-        driver?.sendText(text)
+        return driver?.sendText(text) == true
     }
 
     // MARK: Keyboard pad
+
+    func showKeyboard(continuingPadEditing: Bool = false) {
+        keyboardSheetContinuesPadEditing = continuingPadEditing
+        showingKeyboard = true
+    }
 
     /// What's been typed on the keyboard pad since the last Return, for clear and for TVs that don't type live.
     var typed = ""
@@ -473,15 +486,34 @@ final class AppModel: TVDriverDelegate {
 
     var typesLive: Bool { driver?.typesLive ?? true }
     var canSendTVDelete: Bool { !isConnectionPaused && supports(.backspace) }
+    var canReturnOnTV: Bool { typesLive && canSendKeyboardPadText && supports(.enter) }
 
-    /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
-    func type(_ text: String) {
+    private var canSendKeyboardPadText: Bool { state == .connected && !isConnectionPaused }
+
+    /// Keep the draft when a send cannot start, and count only accepted text for Clear.
+    func submitKeyboardPadText(_ text: String) -> Bool {
+        guard canSendKeyboardPadText else {
+            reconnect()
+            return false
+        }
+        guard !text.isEmpty, sendText(text) else { return false }
         cancelPendingTypeDelete()
+        typed = typesLive ? typed + text : ""
         #if DEBUG
         recordDemoInput(text)
         #endif
+        return true
+    }
+
+    /// Live keys count toward Clear once the driver accepts them. Buffered keyboards edit a local draft.
+    func type(_ text: String) {
+        guard !text.isEmpty else { return }
+        cancelPendingTypeDelete()
+        guard !typesLive || sendText(text) else { return }
         typed += text
-        if typesLive { sendText(text) }
+        #if DEBUG
+        recordDemoInput(text)
+        #endif
     }
 
     func typeDelete() {
@@ -491,8 +523,8 @@ final class AppModel: TVDriverDelegate {
         if typesLive { press(.backspace) }
     }
 
-    func repeatTypeDelete(request: RemoteInputRequest) async {
-        guard remoteCommandsAvailable, request.canDispatch else {
+    func repeatTypeDelete(request: RemoteInputRequest, fromKeyboardSheet: Bool = false) async {
+        guard (remoteCommandsAvailable || (fromKeyboardSheet && showingKeyboard)), request.canDispatch else {
             request.cancel()
             return
         }
@@ -506,7 +538,7 @@ final class AppModel: TVDriverDelegate {
             request.cancel()
             return
         }
-        guard pendingTypeDelete == nil, remoteInputAvailable else { return }
+        guard pendingTypeDelete == nil, state == .connected else { return }
         pendingTypeDelete = request
         let onRepeatDispatch = request.onDispatch
         request.onDispatch = { [weak self, weak request] in
@@ -528,6 +560,12 @@ final class AppModel: TVDriverDelegate {
         pendingTypeDelete = nil
     }
 
+    private func resetKeyboardPad() {
+        cancelPendingTypeDelete()
+        typed = ""
+        if keyboardSheetContinuesPadEditing { showingKeyboard = false }
+    }
+
     /// Deletes what's been typed since the last Return.
     func typeClear() {
         cancelPendingTypeDelete()
@@ -541,8 +579,8 @@ final class AppModel: TVDriverDelegate {
         cancelPendingTypeDelete()
         if typesLive {
             press(.enter)
-        } else if !typed.isEmpty {
-            sendText(typed)
+        } else if !typed.isEmpty && !sendText(typed) {
+            return
         }
         typed = ""
     }

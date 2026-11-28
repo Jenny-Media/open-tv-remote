@@ -244,12 +244,14 @@ final class SamsungDriver: TVDriver {
     /// (Back), so the keyboard pad holds the text and sends it all on Return.
     var typesLive: Bool { false }
 
-    func sendText(_ text: String) {
-        guard state == .connected else { return }
-        socket?.send(json: [
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        guard state == .connected, let socket, socket.isReady else { return false }
+        socket.send(json: [
             "method": "ms.remote.control",
             "params": ["Cmd": Data(text.utf8).base64EncodedString(), "DataOfCmd": "base64", "TypeOfRemote": "SendInputString"],
         ])
+        return true
     }
 
     func launch(_ app: TVApp) {

@@ -13,11 +13,12 @@ struct RemoteScreen: View {
     }
     @FocusState private var focused: Bool
     @State private var heldHardwareKeys: Set<Character> = []
+    @Environment(\.layoutDirection) private var layoutDirection
     #if os(iOS)
     @AppStorage("duo.bookRemoteOnRight") private var bookRemoteOnRight = false
     @AppStorage("ipad.remoteOnRight") private var tabletRemoteOnRight = false
+    @AppStorage("ipad.mediaControlsPinned") private var tabletMediaPinned = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.layoutDirection) private var layoutDirection
     #endif
 
     var body: some View {
@@ -55,21 +56,48 @@ struct RemoteScreen: View {
             let tabletop = layout.arrangement == .tabletop
             let book = layout.arrangement == .book
             let tablet = UIDevice.current.userInterfaceIdiom == .pad
-            let tabletPanels = tablet && layout.fitsTabletControlPanels && !dynamicTypeSize.isAccessibilitySize && mode != .keyboard
+            let tabletopTyping = tabletop && !tablet && mode == .keyboard
+            let roomyTablet = tablet && layout.fitsTabletControlPanels && !dynamicTypeSize.isAccessibilitySize
+            let hasTabletMedia = tablet && model.current != nil
+            let bottomMedia = hasTabletMedia && tabletMediaPinned && !roomyTablet && !dynamicTypeSize.isAccessibilitySize
+                && layout.controls.width >= 580 && layout.controls.height >= 540
+            let sideMedia = hasTabletMedia && tabletMediaPinned && roomyTablet
+            let mediaPin = hasTabletMedia && !bottomMedia && !sideMedia ? $tabletMediaPinned : nil
             let wide = UIDevice.current.userInterfaceIdiom == .phone && usesSystemToolbar && layout.hasWideFlatSurface
+            let phoneKeyboardLayout: KeyboardPadView.PhoneLayout = switch layout.arrangement {
+            case .compact where layout.controls.height > layout.controls.width:
+                usesSystemToolbar && layout.controls.width < 500 ? .foldedPortrait : .portrait
+            case .compact where layout.hasWideFlatSurface:
+                .wideLandscape
+            default:
+                .adaptive
+            }
 
             ZStack {
                 HStack(alignment: .top, spacing: 0) {
-                    if tabletPanels {
-                        tabletLandscapeRemote
+                    if roomyTablet {
+                        tabletLandscapeRemote(showsMedia: sideMedia, mediaPin: mediaPin)
                             .id(tabletRemoteOnRight)
+                    } else if tabletopTyping {
+                        tabletopKeyboardPane
                     } else {
-                        remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
-                               compactHeight: tabletop || layout.usesTrailingShortcuts,
-                               showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
-                               tablet: tablet)
+                        VStack(spacing: 12) {
+                            remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
+                                   compactHeight: tabletop || layout.usesTrailingShortcuts,
+                                   showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
+                                   tablet: tablet, tabletLandscape: tablet && layout.controls.width > layout.controls.height,
+                                   mediaPin: layout.usesTrailingShortcuts && !usesSystemToolbar ? nil : mediaPin,
+                                   mediaAboveKeys: bottomMedia && mode == .keyboard, phoneKeyboardLayout: phoneKeyboardLayout)
+                                .id(bottomMedia)
+                            if bottomMedia && mode != .keyboard {
+                                tabletMediaPanel(horizontal: true)
+                                    .frame(maxWidth: 620)
+                                    .padding(.horizontal, 20)
+                                    .padding(.bottom, 8)
+                            }
+                        }
                         if !usesSystemToolbar && !tabletop && layout.usesTrailingShortcuts {
-                            shortcutColumn
+                            shortcutColumn(mediaPin: mediaPin)
                         }
                     }
                 }
@@ -84,7 +112,7 @@ struct RemoteScreen: View {
                 if let companion = layout.companion {
                     Group {
                         if tabletop {
-                            tabletopCompanion(groupsSideBySide: companion.width >= 430)
+                            tabletopCompanion(groupsSideBySide: companion.width >= 430, keyboard: tabletopTyping)
                         } else {
                             bookControls
                         }
@@ -94,15 +122,23 @@ struct RemoteScreen: View {
                     .position(x: companion.midX, y: companion.midY)
                 }
             }
-            .preference(key: RemotePaneControlsKey.self, value: book || tabletop || tabletPanels)
+            .preference(key: RemotePaneControlsKey.self, value: book || tabletop || tablet)
             .onChange(of: layout.controls) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: layout.arrangement) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: usesSystemToolbar) { _, _ in heldHardwareKeys.removeAll() }
             .onChange(of: tabletRemoteOnRight) { _, _ in heldHardwareKeys.removeAll() }
+            .onChange(of: tabletMediaPinned) { _, _ in heldHardwareKeys.removeAll() }
         }
     }
 
     private func windowLayout(in geometry: GeometryProxy) -> RemoteWindowLayout {
+        #if DEBUG
+        if DemoMode.showsShortTabletop && geometry.size.height > geometry.size.width {
+            // The fixture reserves a 34-point hinge and leaves a 160-point controls pane.
+            let division = CGRect(x: 0, y: geometry.size.height - 200, width: geometry.size.width, height: 34)
+            return RemoteWindowLayout(size: geometry.size, division: division)
+        }
+        #endif
         // Xcode 27.0 has Swift 6.4, but reserved regions arrived in iOS 27.1.
         #if compiler(>=6.4) && !IPHONE_SDK_27_0
         if #available(iOS 27.1, *) {
@@ -125,7 +161,6 @@ struct RemoteScreen: View {
                     }
                 }
                 DuoQuickControls(showsInput: true)
-                    .id(model.remoteControlMode)
                 swapSidesButton(remoteOnRight: $bookRemoteOnRight, identifier: "bookSwapSides")
             }
             .frame(maxWidth: 300)
@@ -135,27 +170,46 @@ struct RemoteScreen: View {
         .scrollBounceBehavior(.basedOnSize)
     }
 
-    private var tabletLandscapeRemote: some View {
+    private func tabletLandscapeRemote(showsMedia: Bool, mediaPin: Binding<Bool>?) -> some View {
         VStack(spacing: 12) {
-            remoteHeader(showTV: true, showsShortcuts: !usesSystemToolbar)
+            remoteHeader(showTV: true, showsShortcuts: !usesSystemToolbar, mediaPin: mediaPin)
                 .frame(maxWidth: 620)
             GeometryReader { geo in
-                let remoteWidth = min(430, geo.size.width * 0.54)
-                let companionWidth = min(320, geo.size.width * 0.38)
-                let height = min(480, max(0, geo.size.height - 16))
-                HStack(spacing: 16) {
-                    tabletMainControls
+                let keyboard = mode == .keyboard
+                let showsCompanion = showsMedia || keyboard
+                let width = max(0, geo.size.width - 48)
+                let companionWidth = min(248, width * 0.28, max(0, width - 24 - KeyboardPadView.minimumTabletKeyGridWidth))
+                let remoteWidth = showsCompanion ? max(0, width - companionWidth - 24) : width
+                HStack(spacing: 24) {
+                    tabletMainControls(showsMedia: showsMedia)
                         .environment(\.layoutDirection, layoutDirection)
                         .frame(width: remoteWidth)
+                        .id(showsMedia)
                         .accessibilitySortPriority(1)
-                    Spacer(minLength: 0)
-                    tabletCompanion
+                    if showsCompanion {
+                        GeometryReader { panel in
+                            ScrollView {
+                                VStack(spacing: 18) {
+                                    if keyboard {
+                                        TabletKeyboardNavigation()
+                                    }
+                                    if showsMedia {
+                                        tabletMediaPanel(horizontal: false, showsSwap: !keyboard)
+                                    }
+                                    if keyboard {
+                                        swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, minHeight: panel.size.height)
+                            }
+                            .scrollBounceBehavior(.basedOnSize)
+                        }
                         .environment(\.layoutDirection, layoutDirection)
                         .frame(width: companionWidth)
+                    }
                 }
                 // The preference chooses a physical side in every language.
-                .environment(\.layoutDirection, tabletRemoteOnRight ? .rightToLeft : .leftToRight)
-                .frame(height: height)
+                .environment(\.layoutDirection, tabletControlDirection)
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -164,40 +218,88 @@ struct RemoteScreen: View {
         .overlay(alignment: .bottomTrailing) { inputLog }
     }
 
-    @ViewBuilder private var tabletMainControls: some View {
+    @ViewBuilder private func tabletMainControls(showsMedia: Bool) -> some View {
         switch model.remoteControlMode {
-        case .standard, .keypad, .keyboard:
-            RemoteModeLayout { navRow } controls: {
-                pad
-                    .frame(maxWidth: 380, maxHeight: 380)
+        case .keyboard:
+            tabletKeyboardControls(stacked: false)
+                .frame(maxWidth: 1008)
+                .environment(\.adaptiveKeyboardLayout, true)
+        case .standard, .keypad:
+            RemoteModeLayout {
+                HStack(spacing: 12) {
+                    navRow.frame(maxWidth: 480)
+                    if !showsMedia {
+                        swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            } controls: {
+                ScrollView {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 24) {
+                            pad.frame(width: 320, height: 320)
+                                .environment(\.layoutDirection, layoutDirection)
+                            controls(book: false, tablet: true).frame(width: 192)
+                                .environment(\.layoutDirection, layoutDirection)
+                        }
+                        .environment(\.layoutDirection, tabletControlDirection)
+                        VStack(spacing: 18) {
+                            pad.frame(maxWidth: 320).frame(height: 300)
+                            controls(book: false, tablet: true).frame(maxWidth: 300)
+                        }
+                    }
                     .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
+            .frame(maxHeight: 460)
         case .eyesFree:
-            JoystickScreen(compactHeight: true)
+            JoystickScreen(compactHeight: true, navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
+                           swapSides: showsMedia ? nil : { tabletRemoteOnRight.toggle() })
+            .frame(maxHeight: 680)
         case .cursor:
-            CursorScreen(surfaceOnly: true)
+            CursorScreen(wide: true, surfaceOnly: true, scrollStripOnLeading: tabletPadOnLeading,
+                         navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
+                         swapSides: { tabletRemoteOnRight.toggle() })
+            .frame(maxHeight: 680)
         }
     }
 
-    private var tabletCompanion: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: 20) {
-                    if model.current != nil {
-                        if model.remoteControlMode.isGestureMode {
-                            DuoQuickControls(showsInput: true)
-                        } else {
-                            controls(book: false)
-                        }
-                    }
-                    swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+    private var tabletPadOnLeading: Bool {
+        tabletRemoteOnRight != (layoutDirection == .leftToRight)
+    }
+
+    private var tabletControlDirection: LayoutDirection {
+        tabletRemoteOnRight ? .rightToLeft : .leftToRight
+    }
+
+    private func tabletMediaPanel(horizontal: Bool, showsSwap: Bool = true) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Media Controls").font(.headline)
+                    .accessibilityIdentifier("ipadPinnedMedia")
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                Button {
+                    Haptics.tap()
+                    tabletMediaPinned = false
+                } label: {
+                    Image(systemName: "pin.slash")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .id(model.remoteControlMode)
-                .frame(minHeight: geo.size.height)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.secondary)
+                .accessibilityLabel("Unpin Media Controls")
             }
-            .scrollBounceBehavior(.basedOnSize)
+            DuoQuickControls(showsInput: true, groupsSideBySide: horizontal, groupSpacing: 18)
+            if !horizontal && showsSwap {
+                swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+            }
         }
+        .padding(12)
+        .background(Theme.well, in: RoundedRectangle(cornerRadius: 24))
     }
 
     private func swapSidesButton(remoteOnRight: Binding<Bool>, identifier: String) -> some View {
@@ -215,49 +317,131 @@ struct RemoteScreen: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private func tabletopCompanion(groupsSideBySide: Bool) -> some View {
-        VStack(spacing: 0) {
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TVSelectionButton(prominent: true)
-                            .accessibilityIdentifier("tabletopTVSelection")
-                        if let appName = model.lastReportedAppName {
-                            Label("Last reported app · \(appName)", systemImage: "play.tv")
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.secondary)
-                                .accessibilityLabel("Last reported app, \(appName)")
-                                .accessibilityIdentifier("tabletopForegroundApp")
+    private func tabletopCompanion(groupsSideBySide: Bool, keyboard: Bool) -> some View {
+        Group {
+            if keyboard {
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            tabletopTVStatus(prominent: false)
+                            tabletopKeyboardNavigation
+                                #if DEBUG
+                                .frame(maxWidth: DemoMode.shortTabletopCompanionWidth ?? .infinity)
+                                #endif
                         }
-                        StatusBanner()
-                        if !usesSystemToolbar {
-                            TopBar(showsTVSelection: false)
-                        }
+                        .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottom)
                     }
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                    .defaultScrollAnchor(.bottom)
+                    .scrollBounceBehavior(.basedOnSize)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-            }
-            if model.current != nil {
-                // Keep media keys next to the hinge when status appears, wraps, or scrolls.
-                DuoQuickControls(groupsSideBySide: groupsSideBySide)
-                    .id(model.remoteControlMode)
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 0) {
+                    GeometryReader { geometry in
+                        ScrollView {
+                            tabletopTVStatus(prominent: true)
+                                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                    // Keep media keys next to the hinge when status appears, wraps, or scrolls.
+                    tabletopMedia(groupsSideBySide: groupsSideBySide)
+                }
             }
         }
         .accessibilityIdentifier("remoteTVStatusPane")
     }
 
-    private var shortcutColumn: some View {
+    private var tabletopKeyboardNavigation: some View {
+        VStack(spacing: 12) {
+            navRow
+            if model.current != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 0) {
+                        DuoQuickControls()
+                            .frame(width: 166)
+                            .environment(\.layoutDirection, layoutDirection)
+                        Spacer(minLength: 24)
+                            .frame(maxWidth: 64)
+                        tabletopDirectionPad
+                            .environment(\.layoutDirection, layoutDirection)
+                    }
+                    // Keep the D-pad on the physical right in every language.
+                    .environment(\.layoutDirection, .leftToRight)
+                    VStack(spacing: 12) {
+                        DuoQuickControls()
+                        tabletopDirectionPad
+                    }
+                }
+            } else {
+                tabletopDirectionPad
+            }
+        }
+        .frame(maxWidth: 440)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
+    }
+
+    private var tabletopDirectionPad: some View {
+        VStack(spacing: 8) {
+            DPadView().frame(width: 156, height: 156)
+            KeyboardClearButton().frame(width: 64, height: 44)
+        }
+    }
+
+    private func tabletopTVStatus(prominent: Bool) -> some View {
+        VStack(spacing: 12) {
+            TVSelectionButton(prominent: prominent)
+                .accessibilityIdentifier("tabletopTVSelection")
+            if let appName = model.lastReportedAppName {
+                Label("Last reported app · \(appName)", systemImage: "play.tv")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondary)
+                    .accessibilityLabel("Last reported app, \(appName)")
+                    .accessibilityIdentifier("tabletopForegroundApp")
+            }
+            StatusBanner()
+            if !usesSystemToolbar {
+                TopBar(showsTVSelection: false)
+            }
+        }
+        .frame(maxWidth: 440)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder private func tabletopMedia(groupsSideBySide: Bool) -> some View {
+        if model.current != nil {
+            DuoQuickControls(groupsSideBySide: groupsSideBySide)
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+        }
+    }
+
+    private var tabletopKeyboardPane: some View {
+        GeometryReader { viewport in
+            Group {
+                if viewport.size.height >= KeyboardPadView.minimumPhoneKeyGridHeight {
+                    KeyboardPadView(layout: .phoneKeys)
+                        .environment(\.adaptiveKeyboardLayout, true)
+                } else {
+                    KeyboardSheetButton().accessibilityIdentifier("tabletopKeyboardSheet")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottomTrailing) { inputLog }
+    }
+
+    private func shortcutColumn(mediaPin: Binding<Bool>?) -> some View {
         ScrollView {
             VStack(spacing: 12) {
                 TopBar(showsTVSelection: false, vertical: true)
-                if model.current != nil && model.remoteControlMode.isGestureMode &&
+                if let mediaPin {
+                    TabletMediaButton(pinned: mediaPin)
+                } else if model.current != nil && model.remoteControlMode.isGestureMode &&
                     (model.supports(.volumeUp) || model.supports(.volumeDown)) {
                     volume.frame(height: 124)
                 }
@@ -272,34 +456,104 @@ struct RemoteScreen: View {
     #endif
 
     private func remote(showHeader: Bool, tabletop: Bool, book: Bool = false, wide: Bool = false, compactHeight: Bool = false,
-                        showsShortcuts: Bool = true, tablet: Bool = false) -> some View {
+                        showsShortcuts: Bool = true, tablet: Bool = false, tabletLandscape: Bool = false,
+                        mediaPin: Binding<Bool>? = nil,
+                        mediaAboveKeys: Bool = false, phoneKeyboardLayout: KeyboardPadView.PhoneLayout = .adaptive) -> some View {
         let tabletKeyboard = tablet && mode == .keyboard
+        #if os(iOS)
+        let phoneKeyboard = !tablet && mode == .keyboard
+        let inlineTVSelection = phoneKeyboard && compactHeight && !tabletop
+        #else
+        let phoneKeyboard = false
+        let inlineTVSelection = false
+        #endif
+        let fullWidthKeyboard = phoneKeyboard && phoneKeyboardLayout == .wideLandscape
         return VStack(spacing: compactHeight ? 6 : 12) {
-            remoteHeader(showTV: showHeader, showsShortcuts: showsShortcuts)
+            if !inlineTVSelection {
+                remoteHeader(showTV: showHeader, showsShortcuts: showsShortcuts, mediaPin: mediaPin)
+                    .frame(maxWidth: tabletKeyboard ? 620 : .infinity)
+            }
             switch model.remoteControlMode {
+            case .keyboard where tablet:
+                tabletKeyboardControls(stacked: true, showsMedia: mediaAboveKeys)
+            case .keyboard where phoneKeyboard:
+                RemoteModeLayout(spacing: compactHeight ? 8 : 12) {
+                    if inlineTVSelection {
+                        HStack(spacing: 12) {
+                            TVSelectionButton()
+                                .frame(width: 144)
+                                .frame(minHeight: 44)
+                            navRow
+                        }
+                        StatusBanner()
+                    } else {
+                        navRow
+                    }
+                } controls: {
+                    KeyboardPadView(layout: .phone(phoneKeyboardLayout))
+                        .frame(maxWidth: compactHeight || fullWidthKeyboard ? .infinity : 440)
+                        .padding(.bottom, 6)
+                }
             case .standard, .keyboard, .keypad:
                 standardMode(compactHeight: compactHeight, tabletop: tabletop, book: book, wide: wide, tablet: tablet)
             case .eyesFree:
                 JoystickScreen(compactHeight: compactHeight)
             case .cursor:
+                #if os(iOS)
+                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop,
+                             scrollStripOnLeading: tabletLandscape && tabletPadOnLeading,
+                             swapSides: tabletLandscape ? { tabletRemoteOnRight.toggle() } : nil)
+                #else
                 CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop)
+                #endif
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .frame(maxWidth: tabletKeyboard ? 720 : wide || compactHeight ? .infinity : 600)
+        .frame(maxWidth: tabletKeyboard ? 860 : wide || compactHeight || fullWidthKeyboard ? .infinity : 600)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .environment(\.adaptiveKeyboardLayout, book || tabletop || wide || tablet)
+        .environment(\.adaptiveKeyboardLayout, book || tabletop || wide || tablet || phoneKeyboard)
         .overlay(alignment: .bottomTrailing) { inputLog }
     }
 
-    @ViewBuilder private func remoteHeader(showTV: Bool, showsShortcuts: Bool) -> some View {
+    @ViewBuilder private func remoteHeader(showTV: Bool, showsShortcuts: Bool, mediaPin: Binding<Bool>? = nil) -> some View {
+        #if os(iOS)
+        if let mediaPin {
+            if showsShortcuts {
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        TopBar(showsTVSelection: showTV).frame(minWidth: 326)
+                        TabletMediaButton(pinned: mediaPin)
+                    }
+                    VStack(spacing: 8) {
+                        if showTV { TVSelectionButton().frame(minHeight: 44) }
+                        HStack {
+                            TopBar(showsTVSelection: false)
+                            TabletMediaButton(pinned: mediaPin)
+                        }
+                    }
+                }
+            } else if showTV {
+                HStack {
+                    TVSelectionButton().frame(minHeight: 44)
+                    TabletMediaButton(pinned: mediaPin)
+                }
+            }
+        } else {
+            remoteHeaderShortcuts(showTV: showTV, showsShortcuts: showsShortcuts)
+        }
+        #else
+        remoteHeaderShortcuts(showTV: showTV, showsShortcuts: showsShortcuts)
+        #endif
+        if showTV { StatusBanner() }
+    }
+
+    @ViewBuilder private func remoteHeaderShortcuts(showTV: Bool, showsShortcuts: Bool) -> some View {
         if showsShortcuts {
             TopBar(showsTVSelection: showTV)
         } else if showTV {
             TVSelectionButton().frame(minHeight: 40)
         }
-        if showTV { StatusBanner() }
     }
 
     @ViewBuilder private var inputLog: some View {
@@ -315,19 +569,36 @@ struct RemoteScreen: View {
     }
 
     private func standardMode(compactHeight: Bool, tabletop: Bool, book: Bool, wide: Bool, tablet: Bool) -> some View {
-        RemoteModeLayout { navRow } controls: {
-            if tablet && mode == .keyboard {
-                tabletKeyboardPad
-            } else if tabletop && mode == .keyboard && model.current != nil {
-                tabletopKeyboard
-            } else if wide && mode == .dpad {
+        let usesCompactPad = compactHeight && mode != .keyboard
+        return RemoteModeLayout {
+            #if os(iOS)
+            if tablet && usesCompactPad {
+                HStack(spacing: 8) {
+                    navRow
+                    swapSidesButton(remoteOnRight: $tabletRemoteOnRight, identifier: "ipadSwapSides")
+                        .labelStyle(.iconOnly)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            } else {
+                navRow
+            }
+            #else
+            navRow
+            #endif
+        } controls: {
+            if wide && mode == .dpad {
                 wideDirectionalControls
-            } else if compactHeight && mode != .keyboard {
+            } else if usesCompactPad {
                 ScrollView {
                     HStack(alignment: .top, spacing: 16) {
                         pad.frame(height: 192)
-                        controls(book: book, tabletop: tabletop)
+                            .environment(\.layoutDirection, layoutDirection)
+                        controls(book: book, tabletop: tabletop, tablet: tablet)
+                            .environment(\.layoutDirection, layoutDirection)
                     }
+                    #if os(iOS)
+                    .environment(\.layoutDirection, tablet ? tabletControlDirection : layoutDirection)
+                    #endif
                     .padding(.horizontal, 5)
                     .padding(.bottom, 12)
                 }
@@ -338,25 +609,46 @@ struct RemoteScreen: View {
         }
     }
 
-    private var tabletKeyboardPad: some View {
-        ScrollView {
-            KeyboardPadView()
-                .frame(height: 460)
-                .padding(.top, 8)
-                .padding(.bottom, 20)
-        }
-        .scrollBounceBehavior(.basedOnSize)
-    }
-
-    private var tabletopKeyboard: some View {
-        GeometryReader { geo in
-            ScrollView {
-                KeyboardPadView()
-                    .frame(height: max(300, geo.size.height))
+    private func tabletKeyboardControls(stacked: Bool, showsMedia: Bool = false) -> some View {
+        GeometryReader { viewport in
+            #if DEBUG
+            let width = min(viewport.size.width, DemoMode.keyboardTestWidth ?? .infinity)
+            #else
+            let width = viewport.size.width
+            #endif
+            let hasPortraitRoom = stacked && viewport.size.height > viewport.size.width
+            let spacingScale = hasPortraitRoom ? min(1, max(0, (viewport.size.height - 680) / 320)) : 0
+            let controlsSpacing = 12 + 18 * spacingScale
+            let typingAreaOffset = stacked ? TabletKeyboardNavigation.height + controlsSpacing : 0
+            let rowCount: CGFloat = width >= KeyboardPadView.minimumTabletKeyGridWidth ? 5 : 4
+            let rowSpacing = (rowCount - 1) * 9
+            let minimumPadHeight = typingAreaOffset + rowCount * 44 + rowSpacing
+            let maximumPadHeight = typingAreaOffset + rowCount * 64 + rowSpacing
+            // Leave the D-pad and keyboard anchored as the pinned media group moves up.
+            let mediaLift = hasPortraitRoom && showsMedia ? min(56, max(0, (viewport.size.height - 860) / 6)) : 0
+            VStack(spacing: 12 + 30 * spacingScale) {
+                navRow.frame(maxWidth: 480)
+                #if os(iOS)
+                if showsMedia {
+                    tabletMediaPanel(horizontal: true)
+                        .frame(maxWidth: 620)
+                        .padding(.bottom, mediaLift)
+                }
+                #endif
+                GeometryReader { keyboard in
+                    ScrollView {
+                        KeyboardPadView(layout: stacked
+                            ? .stackedTablet(controlsSpacing: controlsSpacing) : .tabletKeys)
+                            .frame(height: max(minimumPadHeight, keyboard.size.height))
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(width: width)
                     .frame(maxWidth: .infinity)
-                    .padding(.bottom, 12)
+                }
+                .frame(maxHeight: maximumPadHeight)
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .padding(.bottom, stacked ? 8 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stacked ? .bottom : .center)
         }
     }
 
@@ -387,7 +679,7 @@ struct RemoteScreen: View {
                     pad
                         .frame(height: padHeight)
                         .padding(.vertical, 4)
-                    if mode != .keyboard { controls(book: book) }
+                    if mode != .keyboard { controls(book: book, tablet: tablet) }
                 }
                 .padding(.bottom, 20)
                 .frame(maxWidth: wide ? geo.size.width * 0.88 : tablet ? 500 : 440)
@@ -417,15 +709,15 @@ struct RemoteScreen: View {
         }
     }
 
-    private func controls(book: Bool, tabletop: Bool = false) -> some View {
-        let showsMedia = !book && !tabletop
+    private func controls(book: Bool, tabletop: Bool = false, tablet: Bool = false) -> some View {
+        let showsMedia = !book && !tabletop && !tablet
         return VStack(spacing: 12) {
             HStack(spacing: 12) {
                 VStack(spacing: 12) {
                     RemoteKeyButton(key: .menu, symbol: "line.3.horizontal")
                     RemoteKeyButton(key: .info, symbol: "info.circle")
                 }
-                if book {
+                if book || tablet {
                     RemoteKeyButton(key: .search, symbol: "magnifyingglass")
                 } else {
                     VStack(spacing: 12) {
@@ -491,7 +783,7 @@ struct RemoteScreen: View {
             }
         }
         if press.characters == "k" {
-            model.showingKeyboard = true
+            model.showKeyboard()
             return .handled
         }
         guard let key else { return .ignored }
@@ -528,10 +820,73 @@ struct RemotePaneControlsKey: PreferenceKey {
 }
 #endif
 
+#if os(iOS)
+private struct TabletMediaButton: View {
+    @Binding var pinned: Bool
+    @State private var showingControls = false
+
+    var body: some View {
+        KeyCap(shape: Circle(), accessibilityLabel: "Media Controls") {
+            showingControls = true
+        } label: {
+            Image(systemName: "play.rectangle")
+                .font(.system(size: 17, weight: .semibold))
+        }
+        .frame(width: 48, height: 48)
+        .popover(isPresented: $showingControls) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Media Controls").font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        Button {
+                            showingControls = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close Media Controls")
+                    }
+                    DuoQuickControls(showsInput: true, groupSpacing: 18)
+                    Button {
+                        Haptics.tap()
+                        pinned.toggle()
+                    } label: {
+                        Label(pinned ? "Unpin Media Controls" : "Pin on iPad",
+                              systemImage: pinned ? "pin.slash" : "pin")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                    .foregroundStyle(.black)
+                    if pinned {
+                        Text("Docked when the iPad window has room.")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.secondary)
+                    }
+                }
+                .foregroundStyle(Theme.label)
+                .padding(20)
+                .frame(maxWidth: 340)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(idealWidth: 312, idealHeight: 420)
+            .presentationCompactAdaptation(.sheet)
+        }
+    }
+}
+#endif
+
 struct DuoQuickControls: View {
     @Environment(AppModel.self) private var model
     var showsInput = false
     var groupsSideBySide = false
+    var groupSpacing: CGFloat = 12
 
     private let volume: [(key: RemoteKey, symbol: String, repeats: Bool)] = [
         (.volumeDown, "speaker.minus", true), (.mute, "speaker.slash.fill", false), (.volumeUp, "speaker.plus", true),
@@ -543,7 +898,7 @@ struct DuoQuickControls: View {
     var body: some View {
         if let device = model.current {
             let layout = groupsSideBySide ? AnyLayout(HStackLayout(alignment: .top, spacing: 16))
-                : AnyLayout(VStackLayout(spacing: 12))
+                : AnyLayout(VStackLayout(spacing: groupSpacing))
             layout {
                 group("Volume", keys: volume)
                 group("Playback", keys: playback)
@@ -554,10 +909,13 @@ struct DuoQuickControls: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     .frame(height: 48)
+                    .padding(.top, groupsSideBySide ? 24 : 0)
                     .disabled(!model.remoteCommandsAvailable)
                 }
             }
             .id(device.id)
+            // A mode change ends any press held on the shared media controls.
+            .id(model.remoteControlMode)
         }
     }
 
@@ -598,7 +956,7 @@ private struct TopBar: View {
             }
 
             KeyCap(shape: Circle(), accessibilityLabel: "Keyboard") {
-                model.showingKeyboard = true
+                model.showKeyboard()
             } label: {
                 Image(systemName: "keyboard").font(.system(size: 16, weight: .semibold))
             }

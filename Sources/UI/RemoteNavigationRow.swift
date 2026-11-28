@@ -91,14 +91,16 @@ private struct RemoteModePicker: View {
 struct RemoteModeLayout<Navigation: View, Controls: View>: View {
     private let navigation: Navigation
     private let controls: Controls
+    private let spacing: CGFloat
 
-    init(@ViewBuilder navigation: () -> Navigation, @ViewBuilder controls: () -> Controls) {
+    init(spacing: CGFloat = 12, @ViewBuilder navigation: () -> Navigation, @ViewBuilder controls: () -> Controls) {
+        self.spacing = spacing
         self.navigation = navigation()
         self.controls = controls()
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: spacing) {
             navigation
             controls
         }
