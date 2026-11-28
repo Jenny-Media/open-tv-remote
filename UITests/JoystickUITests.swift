@@ -476,7 +476,7 @@ final class JoystickUITests: XCTestCase {
         assertClearBelowDPad()
         let keys = app.buttons["q"].frame.union(app.buttons["p"].frame)
         XCTAssertEqual(app.buttons["OK"].frame.midX, keys.midX, accuracy: 1)
-        XCTAssertEqual(keys.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(keys.minY - app.buttons["Clear"].frame.maxY, 21)
     }
 
     private func requireStandardIPhone() throws {
@@ -1252,6 +1252,8 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
         XCTAssertLessThan(app.buttons["Down"].frame.maxY, numberRow.minY)
         captureKeyboard("iPhone Duo open portrait keyboard")
+        app.buttons["q"].press(forDuration: 2.5)
+        assertDuoNumberRowAboveLetters()
     }
 
     private func assertDuoNumberRowAboveLetters() {

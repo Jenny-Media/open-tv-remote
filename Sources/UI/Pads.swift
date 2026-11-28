@@ -99,6 +99,47 @@ struct DPadView: View {
 
 // MARK: - Keyboard
 
+struct PressedKeyboardCharacter: PreferenceKey {
+    let text: String
+    let bounds: Anchor<CGRect>
+
+    static var defaultValue: Self? { nil }
+
+    static func reduce(value: inout Self?, nextValue: () -> Self?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+private struct KeyboardCharacterPreview: View {
+    private static let width: CGFloat = 54
+    private static let height: CGFloat = 44
+    private static let keyClearance: CGFloat = 8
+    // The D-pad's backing circle extends six points below its frame.
+    static let requiredSpacing = height + keyClearance + 6
+
+    let key: PressedKeyboardCharacter
+
+    var body: some View {
+        GeometryReader { grid in
+            let halfWidth = Self.width / 2
+            let x = min(max(grid[key.bounds].midX, halfWidth), grid.size.width - halfWidth)
+            Text(key.text)
+                .font(.system(size: 29, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.label)
+                .frame(width: Self.width, height: Self.height)
+                .background {
+                    let shape = RoundedRectangle(cornerRadius: 12)
+                    shape.fill(Theme.keyTop)
+                        .overlay(shape.strokeBorder(Theme.accent.opacity(0.55), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.65), radius: 3, y: 1)
+                }
+                .position(x: x, y: -Self.height / 2 - Self.keyClearance)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct KeyboardPadView: View {
     enum PhoneLayout: Equatable {
         case adaptive, portrait, foldedPortrait, widePortrait, wideLandscape
@@ -118,6 +159,7 @@ struct KeyboardPadView: View {
     private static let defaultKeyGap: CGFloat = 6
     private static let maximumKeyHeight: CGFloat = 64
     private static let minimumKeyHeight: CGFloat = 44
+    private static let minimumPhoneKeyWidth: CGFloat = 24
     private static let portraitKeyHeight: CGFloat = 52
     private static let portraitGridHeight = 4 * portraitKeyHeight + 3 * defaultKeyGap
     private static let portraitPadSize: CGFloat = 176
@@ -186,10 +228,11 @@ struct KeyboardPadView: View {
             let portraitClearFits = width >= Self.portraitPadSize + 2 * Self.phoneClearSideInset
             let stackedNavigation = (isPortrait && !portraitClearFits) ||
                 (posture == .foldedPortrait && width < compactPadSize + 2 * Self.phoneClearSideInset)
+            let baseNavigationSpacing: CGFloat = isPortrait ? 22 : 10
             let minimumHeight = sideBySide
                 ? max(Self.minimumPhoneKeyGridHeight, compactPadSize + 8 + Self.phoneClearHeight)
                 : compactPadSize + (stackedNavigation ? 10 + Self.phoneClearHeight : 0)
-                    + (isPortrait ? 22 : 10) + Self.minimumPhoneKeyGridHeight
+                    + baseNavigationSpacing + Self.minimumPhoneKeyGridHeight
             if height < minimumHeight {
                 shortPhoneKeyboard(height: height)
             } else {
@@ -206,12 +249,17 @@ struct KeyboardPadView: View {
                 // Reserve the preferred key rows before distributing spare portrait height.
                 let minimumGridHeight = Self.minimumPhoneKeyGridHeight + spaceForNumberRow
                 let preferredSpacingHeight = (padSize - compactPadSize) + (portraitGridHeight - minimumGridHeight)
-                let portraitRoom = isPortrait ? max(0, remainingHeight - preferredSpacingHeight) : 0
-                let navigationSpacing = isPortrait ? 22 + (stackedNavigation ? 0 : min(40, portraitRoom / 3)) : 10
+                let spareHeight = max(0, remainingHeight - preferredSpacingHeight)
+                let bottomInset = isPortrait ? min(24, spareHeight / 3) : 0
+                let navigationSpacing = baseNavigationSpacing + (isPortrait && !stackedNavigation ? min(40, spareHeight / 3) : 0)
+                let spacingWithPreview = max(navigationSpacing, KeyboardCharacterPreview.requiredSpacing)
+                let showsPreviews = (isPortrait || posture == .foldedPortrait)
+                    && width >= 10 * Self.minimumPhoneKeyWidth + 9 * gap
+                    && spareHeight >= bottomInset + spacingWithPreview - baseNavigationSpacing
                 phoneKeyboardContent(posture, sideBySide: sideBySide, stackedNavigation: stackedNavigation,
-                                     padSize: padSize, navigationSpacing: navigationSpacing,
-                                     showsNumberRow: showsNumberRow, portraitGridHeight: portraitGridHeight)
-                    .padding(.bottom, min(24, portraitRoom / 3))
+                                     padSize: padSize, navigationSpacing: showsPreviews ? spacingWithPreview : navigationSpacing,
+                                     showsNumberRow: showsNumberRow, showsPreviews: showsPreviews, portraitGridHeight: portraitGridHeight)
+                    .padding(.bottom, bottomInset)
             }
         }
         .clipped()
@@ -244,7 +292,7 @@ struct KeyboardPadView: View {
     @ViewBuilder private func phoneKeyboardContent(_ posture: PhoneLayout, sideBySide: Bool,
                                                    stackedNavigation: Bool, padSize: CGFloat,
                                                    navigationSpacing: CGFloat, showsNumberRow: Bool,
-                                                   portraitGridHeight: CGFloat) -> some View {
+                                                   showsPreviews: Bool, portraitGridHeight: CGFloat) -> some View {
         if sideBySide {
             HStack(spacing: 12) {
                 VStack(spacing: 8) {
@@ -257,8 +305,7 @@ struct KeyboardPadView: View {
             let isPortrait = posture.usesPortraitSpacing
             VStack(spacing: navigationSpacing) {
                 phoneKeyboardNavigation(posture, stacked: stackedNavigation, padSize: padSize)
-                keyGrid(tablet: false, addsNumberRow: showsNumberRow,
-                        showsCharacterPreviews: isPortrait || posture == .foldedPortrait)
+                keyGrid(tablet: false, addsNumberRow: showsNumberRow, showsCharacterPreviews: showsPreviews)
                     .frame(maxHeight: isPortrait ? portraitGridHeight : .infinity)
             }
             .frame(maxHeight: .infinity, alignment: isPortrait ? .bottom : .center)
@@ -307,7 +354,7 @@ struct KeyboardPadView: View {
             let extraWidth = max(0, geo.size.width - Self.minimumTabletKeyGridWidth)
             let keyGap = tablet ? min(9, gap + extraWidth / 9) : gap
             let keyWidth = (geo.size.width - keyGap * 9) / 10
-            if inlineEditing && adaptiveKeyboardLayout && keyWidth < (tablet ? 28 : 24) {
+            if inlineEditing && adaptiveKeyboardLayout && keyWidth < (tablet ? 28 : Self.minimumPhoneKeyWidth) {
                 narrowKeys(rows)
             } else {
                 fullKeys(rows, width: keyWidth, gap: keyGap, inlineEditing: inlineEditing,
@@ -344,6 +391,9 @@ struct KeyboardPadView: View {
             }
         }
         .frame(maxHeight: CGFloat(rows.count + 1) * Self.maximumKeyHeight + CGFloat(rows.count) * gap)
+        .overlayPreferenceValue(PressedKeyboardCharacter.self) { key in
+            if let key { KeyboardCharacterPreview(key: key) }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -443,13 +493,8 @@ struct KeyboardPadView: View {
     private func characters(_ row: [String], width: CGFloat, showsPreviews: Bool) -> some View {
         ForEach(row, id: \.self) { c in
             let text = shifted && layer == .letters ? c.uppercased() : c
-            let previewAlignment: Alignment = switch c {
-            case let key where row.count == 10 && key == row.first: .topLeading
-            case let key where row.count == 10 && key == row.last: .topTrailing
-            default: .top
-            }
             KeyCap(shape: keyShape, accessibilityLabel: text,
-                   characterPreviewAlignment: showsPreviews ? previewAlignment : nil) {
+                   showsCharacterPreview: showsPreviews) {
                 typeCharacter(text)
             } label: {
                 Text(text).font(.system(size: 19, weight: .medium, design: .rounded))
