@@ -10,6 +10,7 @@ struct CursorScreen: View {
     var compactHeight = false
     var wide = false
     var surfaceOnly = false
+    var tabletop = false
     var scrollStripOnLeading = false
     var navigationAlignment: Alignment?
     var swapSides: (() -> Void)?
@@ -18,7 +19,7 @@ struct CursorScreen: View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
-                       surfaceOnly: surfaceOnly, scrollStripOnLeading: scrollStripOnLeading,
+                       surfaceOnly: surfaceOnly, tabletop: tabletop, scrollStripOnLeading: scrollStripOnLeading,
                        navigationAlignment: navigationAlignment, swapSides: swapSides,
                        mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                        modes: model.availableRemoteModes) { command, request in
@@ -51,6 +52,7 @@ private struct CursorControls: View {
     let compactHeight: Bool
     let wide: Bool
     let surfaceOnly: Bool
+    let tabletop: Bool
     let scrollStripOnLeading: Bool
     let navigationAlignment: Alignment?
     let swapSides: (() -> Void)?
@@ -60,7 +62,7 @@ private struct CursorControls: View {
     private var inputEnabled: Bool { enabled && scenePhase == .active && !showingCursorSettings }
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
-         wide: Bool = false, surfaceOnly: Bool = false, scrollStripOnLeading: Bool = false,
+         wide: Bool = false, surfaceOnly: Bool = false, tabletop: Bool = false, scrollStripOnLeading: Bool = false,
          navigationAlignment: Alignment? = nil, swapSides: (() -> Void)? = nil,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
@@ -70,6 +72,7 @@ private struct CursorControls: View {
         self.compactHeight = compactHeight
         self.wide = wide
         self.surfaceOnly = surfaceOnly
+        self.tabletop = tabletop
         self.scrollStripOnLeading = scrollStripOnLeading
         self.navigationAlignment = navigationAlignment
         self.swapSides = swapSides
@@ -85,12 +88,17 @@ private struct CursorControls: View {
             HStack(spacing: 8) {
                 RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                     back: { press(.back) }, home: { press(.home) })
-                if surfaceOnly { cursorSettingsButton }
+                if surfaceOnly && !tabletop { cursorSettingsButton }
             }
             .frame(maxWidth: navigationAlignment == nil ? .infinity : 440)
             .frame(maxWidth: .infinity, alignment: navigationAlignment ?? .center)
         } controls: {
-            if surfaceOnly {
+            if tabletop {
+                HStack(alignment: .top, spacing: 8) {
+                    controlSurface
+                    cursorSettingsButton
+                }
+            } else if surfaceOnly {
                 controlSurface
             } else if compactHeight {
                 HStack(spacing: 16) {
@@ -116,7 +124,7 @@ private struct CursorControls: View {
         }
         .foregroundStyle(Theme.label)
         .padding(.bottom, 12)
-        .frame(maxWidth: wide ? .infinity : 600, maxHeight: .infinity)
+        .frame(maxWidth: wide || tabletop ? .infinity : 600, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: enabled) { _, _ in sender.stop() }

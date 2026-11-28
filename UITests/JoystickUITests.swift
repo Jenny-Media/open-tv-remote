@@ -887,13 +887,41 @@ final class JoystickUITests: XCTestCase {
         captureKeyboard("iPhone Duo Tabletop keyboard")
     }
 
+    func testTabletopNavigationStaysBelowTheHingeAcrossModes() throws {
+        try requireDuoPosture("tabletop")
+        launch(openMode: false, logInput: false, additionalArguments: [
+            "-demoLGCursor", "YES", "-padMode", "standard",
+        ])
+        let back = app.buttons["Back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        let navigation = back.frame.union(app.buttons["Home"].frame)
+        XCTAssertLessThan(app.buttons["Volume up"].frame.maxY, navigation.minY)
+
+        for (id, title) in [("keypad", "Number pad"), ("eyesFree", "Eyes-free"),
+                            ("cursor", "Cursor"), ("keyboard", "Keyboard"), ("standard", "Directional pad")] {
+            selectMode(id, title: title)
+            assertTabletopNavigationUnchanged(from: navigation)
+            if id == "keyboard" {
+                let key = app.buttons["q"]
+                XCTAssertTrue(key.isHittable)
+                XCTAssertLessThan(navigation.maxY, key.frame.minY)
+                captureKeyboard("Duo Tabletop mode bar above the keyboard")
+            }
+        }
+    }
+
     func testShortTabletopUsesTheKeyboardSheet() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
         let device = XCUIDevice.shared
         let original = device.orientation
         defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
         device.orientation = .portrait
-        launch(openMode: false, additionalArguments: ["-padMode", "keyboard", "-demoShortTabletop", "YES"])
+        launch(openMode: false, additionalArguments: ["-padMode", "standard", "-demoShortTabletop", "YES"])
+        let back = app.buttons["Back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        let navigation = back.frame.union(app.buttons["Home"].frame)
+        selectMode("keyboard", title: "Keyboard")
+        assertTabletopNavigationUnchanged(from: navigation)
 
         let typing = app.buttons["tabletopKeyboardSheet"]
         XCTAssertTrue(typing.waitForExistence(timeout: 5))
@@ -944,7 +972,7 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Volume up"].isHittable)
         XCTAssertTrue(app.buttons["Left"].isHittable)
         XCTAssertLessThan(app.buttons["Play or pause"].frame.maxY, app.buttons["Left"].frame.minY)
-        assertShortTabletopCompanionFits()
+        assertShortTabletopCompanionFits(width: 375)
     }
 
     func testShortTabletopSheetCarriesAndSubmitsTheBufferedDraft() throws {
@@ -989,9 +1017,23 @@ final class JoystickUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Send text"].isEnabled)
     }
 
-    private func assertShortTabletopCompanionFits() {
-        let navigationWidth = app.buttons["Back"].frame.union(app.buttons["Home"].frame).width
-        if navigationWidth >= 346 {
+    private func assertTabletopNavigationUnchanged(from original: CGRect, file: StaticString = #filePath, line: UInt = #line) {
+        // Number Pad also exposes a Back key inside its grid.
+        let back = app.buttons.matching(identifier: "Back").firstMatch
+        let home = app.buttons["Home"]
+        XCTAssertTrue(back.isHittable, "Navigation Back is reachable", file: file, line: line)
+        XCTAssertTrue(home.isHittable, "Navigation Home is reachable", file: file, line: line)
+        let current = back.frame.union(home.frame)
+        XCTAssertEqual(current.minX, original.minX, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(current.minY, original.minY, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(current.width, original.width, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(current.height, original.height, accuracy: 1, file: file, line: line)
+    }
+
+    private func assertShortTabletopCompanionFits(width: CGFloat? = nil) {
+        let companionWidth = width ?? app.windows.firstMatch.frame.width
+        // Two columns require 346 points inside the 20-point margins.
+        if companionWidth >= 386 {
             assertTabletopDirectionPadOnRight(minimumGap: 23.5)
         } else {
             XCTAssertLessThan(app.buttons["Play or pause"].frame.maxY, app.buttons["Left"].frame.minY)
