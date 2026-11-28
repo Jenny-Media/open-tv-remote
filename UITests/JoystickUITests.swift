@@ -508,6 +508,7 @@ final class JoystickUITests: XCTestCase {
                     XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
                     XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
                 } else {
+                    XCTAssertEqual(ok.frame.width, 60, accuracy: 1)
                     assertClearBelowDPad()
                     XCTAssertEqual(keyRow.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
                 }

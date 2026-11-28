@@ -171,17 +171,21 @@ struct KeyboardPadView: View {
             let width = viewport.size.width
             let height = viewport.size.height
             let sideBySide = posture == .adaptive && width >= 480 && height < 360
-            let padSize = sideBySide ? min(108, max(64, height - Self.phoneClearHeight - 8))
-                                     : min(132, max(60, width - 72))
-            let stackedNavigation = posture == .portrait ||
-                (posture == .foldedPortrait && width < padSize + 2 * Self.foldedNavigationSideInset)
+            let isPortrait = posture == .portrait
+            let padWidthLimit = max(60, width - 72)
+            let compactPadSize = sideBySide ? min(108, max(64, height - Self.phoneClearHeight - 8))
+                                            : min(132, padWidthLimit)
+            let stackedNavigation = isPortrait ||
+                (posture == .foldedPortrait && width < compactPadSize + 2 * Self.foldedNavigationSideInset)
             let minimumHeight = sideBySide
-                ? max(Self.minimumPhoneKeyGridHeight, padSize + 8 + Self.phoneClearHeight)
-                : padSize + (stackedNavigation ? 10 + Self.phoneClearHeight : 0)
-                    + (posture == .portrait ? 22 : 10) + Self.minimumPhoneKeyGridHeight
+                ? max(Self.minimumPhoneKeyGridHeight, compactPadSize + 8 + Self.phoneClearHeight)
+                : compactPadSize + (stackedNavigation ? 10 + Self.phoneClearHeight : 0)
+                    + (isPortrait ? 22 : 10) + Self.minimumPhoneKeyGridHeight
             if height < minimumHeight {
                 shortPhoneKeyboard(height: height)
             } else {
+                let padSize = isPortrait ? min(150, padWidthLimit, compactPadSize + (height - minimumHeight))
+                                         : compactPadSize
                 phoneKeyboardContent(posture, sideBySide: sideBySide, padSize: padSize)
             }
         }
