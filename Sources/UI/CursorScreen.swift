@@ -5,7 +5,6 @@ import UIKit
 
 struct CursorScreen: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("page") private var page = 0
 
     var compactHeight = false
     var wide = false
@@ -14,16 +13,17 @@ struct CursorScreen: View {
     var scrollStripOnLeading = false
     var navigationAlignment: Alignment?
     var swapSides: (() -> Void)?
+    var pageIsActive: () -> Bool = { true }
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
-                       enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
+                       enabled: model.supportsCursor && model.remoteInputAvailable && pageIsActive(),
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
                        surfaceOnly: surfaceOnly, tabletop: tabletop, scrollStripOnLeading: scrollStripOnLeading,
                        navigationAlignment: navigationAlignment, swapSides: swapSides,
                        mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                        modes: model.availableRemoteModes) { command, request in
-            guard page == 0 else { return false }
+            guard pageIsActive() else { return false }
             let sent = await model.sendCursor(command, request: request)
             if case .move = command { return sent }
             if sent {

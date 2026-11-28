@@ -2,19 +2,20 @@ import SwiftUI
 
 struct JoystickScreen: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("page") private var page = 0
 
     var compactHeight = false
     var navigationAlignment: Alignment?
     var swapSides: (() -> Void)?
+    var pageIsActive: () -> Bool = { true }
 
     var body: some View {
-        JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && page == 0,
+        JoystickControls(tvName: model.current?.name ?? "No TV selected", enabled: model.remoteInputAvailable && pageIsActive(),
                          sessionID: model.currentID, inputLog: inputLog, compactHeight: compactHeight,
                          navigationAlignment: navigationAlignment, swapSides: swapSides,
                          mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                          modes: model.availableRemoteModes) { key, request in
-            guard model.remoteInputAvailable, page == 0, model.remoteControlMode == .eyesFree, !request.isCancelled else { return }
+            guard model.remoteInputAvailable, pageIsActive(), model.remoteControlMode == .eyesFree,
+                  !request.isCancelled else { return }
             switch request.feedback {
             case .firm:
                 switch key {
