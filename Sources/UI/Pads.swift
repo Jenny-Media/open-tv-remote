@@ -107,12 +107,14 @@ struct KeyboardPadView: View {
     enum Layout {
         case stacked
         case phone(PhoneLayout)
+        case phoneKeys
         case stackedTablet(controlsSpacing: CGFloat)
         case tabletKeys
     }
 
     private static let defaultKeyGap: CGFloat = 6
     private static let maximumKeyHeight: CGFloat = 64
+    static let minimumPhoneKeyGridHeight: CGFloat = 4 * 44 + 3 * defaultKeyGap
     static let minimumTabletKeyGridWidth: CGFloat = 10 * 44 + 9 * defaultKeyGap
 
     private enum Layer { case letters, numbers, symbols }
@@ -146,6 +148,8 @@ struct KeyboardPadView: View {
                 }
             case .phone(let posture):
                 phoneKeyboard(posture)
+            case .phoneKeys:
+                keyGrid(tablet: false)
             case .stackedTablet(let controlsSpacing):
                 VStack(spacing: controlsSpacing) {
                     TabletKeyboardNavigation()
@@ -412,7 +416,7 @@ struct KeyboardPadView: View {
     }
 }
 
-private struct KeyboardClearButton: View {
+struct KeyboardClearButton: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {

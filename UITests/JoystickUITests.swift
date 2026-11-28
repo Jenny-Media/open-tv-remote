@@ -804,10 +804,52 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(space.waitForExistence(timeout: 5))
         assertKeyboardEditingKeys()
         assertKeyboardAbovePageSwitcher()
+        let q = app.buttons["q"]
+        let letterRow = q.frame.union(app.buttons["p"].frame)
+        XCTAssertGreaterThan(letterRow.width, app.windows.firstMatch.frame.width * 0.85)
+        XCTAssertGreaterThanOrEqual(q.frame.height, 43.5)
+        XCTAssertTrue(app.buttons["OK"].isHittable)
+        XCTAssertLessThan(app.buttons["Down"].frame.maxY, letterRow.minY)
+        XCTAssertLessThan(app.buttons["Clear"].frame.maxY, letterRow.minY)
+        XCTAssertLessThan(app.buttons["Home"].frame.maxY, letterRow.minY)
+        XCTAssertFalse(app.buttons["tabletopKeyboardSheet"].exists)
         let play = app.buttons["Play or pause"]
         XCTAssertTrue(play.isHittable)
-        XCTAssertLessThan(play.frame.maxY, app.buttons["q"].frame.minY)
+        XCTAssertLessThan(play.frame.maxY, letterRow.minY)
         captureKeyboard("iPhone Duo Tabletop keyboard")
+    }
+
+    func testShortTabletopUsesTheKeyboardSheet() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard", "-demoShortTabletop", "YES"])
+
+        let typing = app.buttons["tabletopKeyboardSheet"]
+        XCTAssertTrue(typing.waitForExistence(timeout: 5))
+        XCTAssertTrue(typing.isHittable)
+        XCTAssertFalse(app.buttons["Space"].exists)
+        for label in ["OK", "Down", "Clear", "Home"] {
+            let control = app.buttons[label]
+            XCTAssertTrue(control.isHittable)
+            XCTAssertLessThan(control.frame.maxY, typing.frame.minY)
+        }
+        XCTAssertLessThan(typing.frame.maxY, app.buttons["Watch"].frame.minY)
+        captureKeyboard("Short Tabletop typing action")
+
+        typing.tap()
+        let field = app.textFields["Search or type…"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Nature documentaries")
+        XCTAssertEqual(field.value as? String, "Nature documentaries")
+        XCTAssertTrue(app.buttons["Send text"].isEnabled)
+        captureKeyboard("Short Tabletop keyboard sheet")
+        app.buttons["Send text"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(typing.isHittable)
     }
 
     func testTabletopLGCursorLeavesRoomForTheTouchpad() throws {

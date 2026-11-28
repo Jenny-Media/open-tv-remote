@@ -66,6 +66,7 @@ enum DemoMode {
         return UUID(uuidString: value)
     }
     static var foregroundAppPackage: String? { UserDefaults.standard.string(forKey: "demoForegroundAppPackage") }
+    static var showsShortTabletop: Bool { isEnabled && UserDefaults.standard.bool(forKey: "demoShortTabletop") }
     static var keyboardTestWidth: CGFloat? {
         let width = UserDefaults.standard.double(forKey: "demoKeyboardWidth")
         return isEnabled && width > 0 ? CGFloat(width) : nil

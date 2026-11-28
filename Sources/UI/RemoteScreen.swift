@@ -56,6 +56,7 @@ struct RemoteScreen: View {
             let tabletop = layout.arrangement == .tabletop
             let book = layout.arrangement == .book
             let tablet = UIDevice.current.userInterfaceIdiom == .pad
+            let tabletopTyping = tabletop && !tablet && mode == .keyboard
             let roomyTablet = tablet && layout.fitsTabletControlPanels && !dynamicTypeSize.isAccessibilitySize
             let hasTabletMedia = tablet && model.current != nil
             let bottomMedia = hasTabletMedia && tabletMediaPinned && !roomyTablet && !dynamicTypeSize.isAccessibilitySize
@@ -77,6 +78,8 @@ struct RemoteScreen: View {
                     if roomyTablet {
                         tabletLandscapeRemote(showsMedia: sideMedia, mediaPin: mediaPin)
                             .id(tabletRemoteOnRight)
+                    } else if tabletopTyping {
+                        tabletopKeyboardPane
                     } else {
                         VStack(spacing: 12) {
                             remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
@@ -108,7 +111,7 @@ struct RemoteScreen: View {
                 if let companion = layout.companion {
                     Group {
                         if tabletop {
-                            tabletopCompanion(groupsSideBySide: companion.width >= 430)
+                            tabletopCompanion(groupsSideBySide: companion.width >= 430, keyboard: tabletopTyping)
                         } else {
                             bookControls
                         }
@@ -128,6 +131,13 @@ struct RemoteScreen: View {
     }
 
     private func windowLayout(in geometry: GeometryProxy) -> RemoteWindowLayout {
+        #if DEBUG
+        if DemoMode.showsShortTabletop {
+            // The fixture reserves a 34-point hinge and leaves a 160-point controls pane.
+            let division = CGRect(x: 0, y: geometry.size.height - 200, width: geometry.size.width, height: 34)
+            return RemoteWindowLayout(size: geometry.size, division: division)
+        }
+        #endif
         // Xcode 27.0 has Swift 6.4, but reserved regions arrived in iOS 27.1.
         #if compiler(>=6.4) && !IPHONE_SDK_27_0
         if #available(iOS 27.1, *) {
@@ -290,41 +300,103 @@ struct RemoteScreen: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private func tabletopCompanion(groupsSideBySide: Bool) -> some View {
-        VStack(spacing: 0) {
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TVSelectionButton(prominent: true)
-                            .accessibilityIdentifier("tabletopTVSelection")
-                        if let appName = model.lastReportedAppName {
-                            Label("Last reported app · \(appName)", systemImage: "play.tv")
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.secondary)
-                                .accessibilityLabel("Last reported app, \(appName)")
-                                .accessibilityIdentifier("tabletopForegroundApp")
+    private func tabletopCompanion(groupsSideBySide: Bool, keyboard: Bool) -> some View {
+        Group {
+            if keyboard {
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            tabletopTVStatus(prominent: false)
+                            tabletopMedia(groupsSideBySide: groupsSideBySide)
+                            VStack(spacing: 12) {
+                                navRow
+                                HStack(spacing: 12) {
+                                    DPadView().frame(width: 108, height: 108)
+                                    KeyboardClearButton().frame(width: 60, height: 48)
+                                }
+                            }
+                            .frame(maxWidth: 440)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 8)
                         }
-                        StatusBanner()
-                        if !usesSystemToolbar {
-                            TopBar(showsTVSelection: false)
-                        }
+                        .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottom)
                     }
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                    .defaultScrollAnchor(.bottom)
+                    .scrollBounceBehavior(.basedOnSize)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-            }
-            if model.current != nil {
-                // Keep media keys next to the hinge when status appears, wraps, or scrolls.
-                DuoQuickControls(groupsSideBySide: groupsSideBySide)
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 0) {
+                    GeometryReader { geometry in
+                        ScrollView {
+                            tabletopTVStatus(prominent: true)
+                                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                    // Keep media keys next to the hinge when status appears, wraps, or scrolls.
+                    tabletopMedia(groupsSideBySide: groupsSideBySide)
+                }
             }
         }
         .accessibilityIdentifier("remoteTVStatusPane")
+    }
+
+    private func tabletopTVStatus(prominent: Bool) -> some View {
+        VStack(spacing: 12) {
+            TVSelectionButton(prominent: prominent)
+                .accessibilityIdentifier("tabletopTVSelection")
+            if let appName = model.lastReportedAppName {
+                Label("Last reported app · \(appName)", systemImage: "play.tv")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.secondary)
+                    .accessibilityLabel("Last reported app, \(appName)")
+                    .accessibilityIdentifier("tabletopForegroundApp")
+            }
+            StatusBanner()
+            if !usesSystemToolbar {
+                TopBar(showsTVSelection: false)
+            }
+        }
+        .frame(maxWidth: 440)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder private func tabletopMedia(groupsSideBySide: Bool) -> some View {
+        if model.current != nil {
+            DuoQuickControls(groupsSideBySide: groupsSideBySide)
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+        }
+    }
+
+    private var tabletopKeyboardPane: some View {
+        GeometryReader { viewport in
+            Group {
+                if viewport.size.height >= KeyboardPadView.minimumPhoneKeyGridHeight {
+                    KeyboardPadView(layout: .phoneKeys)
+                        .environment(\.adaptiveKeyboardLayout, true)
+                } else {
+                    Button {
+                        Haptics.tap()
+                        model.showingKeyboard = true
+                    } label: {
+                        Label("Type on your TV", systemImage: "keyboard")
+                            .font(.headline)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                    .foregroundStyle(.black)
+                    .accessibilityIdentifier("tabletopKeyboardSheet")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottomTrailing) { inputLog }
     }
 
     private func shortcutColumn(mediaPin: Binding<Bool>?) -> some View {
