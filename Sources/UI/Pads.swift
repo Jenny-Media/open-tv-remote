@@ -114,6 +114,8 @@ struct KeyboardPadView: View {
 
     private static let defaultKeyGap: CGFloat = 6
     private static let maximumKeyHeight: CGFloat = 64
+    private static let portraitKeyHeight: CGFloat = 52
+    private static let portraitBottomInset: CGFloat = 16
     private static let portraitPadSize: CGFloat = 176
     private static let phoneClearHeight: CGFloat = 48
     private static let phoneClearWidth: CGFloat = 60
@@ -187,10 +189,14 @@ struct KeyboardPadView: View {
             if height < minimumHeight {
                 shortPhoneKeyboard(height: height)
             } else {
+                let extraHeight = height - minimumHeight
                 let preferredPadSize = portraitClearFits ? Self.portraitPadSize : 150
-                let padSize = isPortrait ? min(preferredPadSize, padWidthLimit, compactPadSize + (height - minimumHeight))
+                let padSize = isPortrait ? min(preferredPadSize, padWidthLimit, compactPadSize + extraHeight)
                                          : compactPadSize
+                let bottomInset = isPortrait ? min(Self.portraitBottomInset, max(0, extraHeight - (padSize - compactPadSize)))
+                                             : 0
                 phoneKeyboardContent(posture, sideBySide: sideBySide, stackedNavigation: stackedNavigation, padSize: padSize)
+                    .padding(.bottom, bottomInset)
             }
         }
         .clipped()
@@ -235,9 +241,9 @@ struct KeyboardPadView: View {
             VStack(spacing: isPortrait ? 22 : 10) {
                 phoneKeyboardNavigation(posture, stacked: stackedNavigation, padSize: padSize)
                 keyGrid(tablet: false)
-                    .frame(maxHeight: isPortrait ? 4 * Self.maximumKeyHeight + 3 * gap : .infinity)
+                    .frame(maxHeight: isPortrait ? 4 * Self.portraitKeyHeight + 3 * gap : .infinity)
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: .infinity, alignment: isPortrait ? .bottom : .center)
         }
     }
 

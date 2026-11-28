@@ -526,6 +526,9 @@ final class JoystickUITests: XCTestCase {
                 if !folded {
                     XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
                     XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, 176 / 2 + 11)
+                    XCTAssertEqual(keyRow.height, 52, accuracy: 1)
+                    XCTAssertEqual(space.frame.height, 52, accuracy: 1)
+                    XCTAssertLessThanOrEqual(app.buttons["Remote"].frame.minY - space.frame.maxY, 32)
                 }
             } else {
                 assertClearBelowDPad()
