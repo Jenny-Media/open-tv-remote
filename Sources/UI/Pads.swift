@@ -65,6 +65,8 @@ struct DPadView: View {
             let size = min(geo.size.width, geo.size.height)
             let radius = size / 2
             let iconDistance = radius * (1 + 0.44) / 2
+            let arrowSize = min(32, max(14, size * 0.115))
+            let okSize = min(36, max(16, size * 0.125))
             ZStack {
                 Circle()
                     .fill(Theme.well)
@@ -77,7 +79,7 @@ struct DPadView: View {
                         model.press(d.key)
                     } label: {
                         Image(systemName: d.symbol)
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.system(size: arrowSize, weight: .bold))
                             .foregroundStyle(Theme.secondary)
                             .offset(x: cos(d.angle * .pi / 180) * iconDistance,
                                     y: sin(d.angle * .pi / 180) * iconDistance)
@@ -87,7 +89,7 @@ struct DPadView: View {
                 KeyCap(shape: Circle(), accessibilityLabel: "OK") {
                     model.press(.select)
                 } label: {
-                    Text("OK").font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("OK").font(.system(size: okSize, weight: .bold, design: .rounded))
                 }
                 .frame(width: size * 0.40, height: size * 0.40)
             }
@@ -152,7 +154,7 @@ struct KeyboardPadView: View {
         case stacked
         case phone(PhoneLayout)
         case phoneKeys
-        case stackedTablet(controlsSpacing: CGFloat)
+        case stackedTablet(controlsSpacing: CGFloat, padSize: CGFloat)
         case tabletKeys
     }
 
@@ -202,9 +204,9 @@ struct KeyboardPadView: View {
                 phoneKeyboard(posture)
             case .phoneKeys:
                 keyGrid(tablet: false)
-            case .stackedTablet(let controlsSpacing):
+            case let .stackedTablet(controlsSpacing, padSize):
                 VStack(spacing: controlsSpacing) {
-                    TabletKeyboardNavigation()
+                    TabletKeyboardNavigation(padSize: padSize)
                     keyGrid(tablet: true)
                 }
             case .tabletKeys:
@@ -256,13 +258,37 @@ struct KeyboardPadView: View {
                 let showsPreviews = (isPortrait || posture == .foldedPortrait)
                     && width >= 10 * Self.minimumPhoneKeyWidth + 9 * gap
                     && spareHeight >= bottomInset + spacingWithPreview - baseNavigationSpacing
+                let finalSpacing = showsPreviews ? spacingWithPreview : navigationSpacing
+                // Give the pad only the room left after the keys and preview have been laid out.
+                let extraPadHeight = max(0, spareHeight - bottomInset - (finalSpacing - baseNavigationSpacing))
+                let responsivePadSize = phoneDirectionPadSize(posture, width: width, height: height,
+                                                              baseline: padSize, extraHeight: extraPadHeight,
+                                                              sideBySide: sideBySide, stacked: stackedNavigation)
                 phoneKeyboardContent(posture, sideBySide: sideBySide, stackedNavigation: stackedNavigation,
-                                     padSize: padSize, navigationSpacing: showsPreviews ? spacingWithPreview : navigationSpacing,
+                                     padSize: responsivePadSize, navigationSpacing: finalSpacing,
                                      showsNumberRow: showsNumberRow, showsPreviews: showsPreviews, portraitGridHeight: portraitGridHeight)
                     .padding(.bottom, bottomInset)
             }
         }
         .clipped()
+    }
+
+    private func phoneDirectionPadSize(_ posture: PhoneLayout, width: CGFloat, height: CGFloat,
+                                       baseline: CGFloat, extraHeight: CGFloat, sideBySide: Bool, stacked: Bool) -> CGFloat {
+        if sideBySide {
+            let minimumKeyGridWidth = 10 * Self.minimumPhoneKeyWidth + 9 * gap
+            return max(baseline, min(176, height - Self.phoneClearHeight - 8, width - minimumKeyGridWidth - 12))
+        }
+
+        let widthForPad: CGFloat
+        switch posture {
+        case .portrait, .foldedPortrait, .widePortrait:
+            widthForPad = width - (stacked ? 12 : 2 * Self.phoneClearSideInset)
+        case .adaptive, .wideLandscape:
+            widthForPad = width - Self.phoneClearWidth - 12
+        }
+        let cap: CGFloat = posture == .widePortrait ? 256 : 224
+        return max(baseline, min(cap, width * 0.60, widthForPad, baseline + extraHeight))
     }
 
     private func shortPhoneKeyboard(height: CGFloat) -> some View {
@@ -571,14 +597,15 @@ struct KeyboardClearButton: View {
 }
 
 struct TabletKeyboardNavigation: View {
-    private static let padSize: CGFloat = 150
+    static let minimumPadSize: CGFloat = 150
     private static let spacing: CGFloat = 10
     private static let clearHeight: CGFloat = 48
-    static let height = padSize + spacing + clearHeight
+    static let editingHeight = spacing + clearHeight
+    let padSize: CGFloat
 
     var body: some View {
         VStack(spacing: Self.spacing) {
-            DPadView().frame(width: Self.padSize, height: Self.padSize)
+            DPadView().frame(width: padSize, height: padSize)
             KeyboardClearButton().frame(width: 64, height: Self.clearHeight)
         }
         .frame(maxWidth: .infinity)

@@ -419,6 +419,8 @@ final class JoystickUITests: XCTestCase {
             assertClearBelowDPad()
             let keys = firstKey.frame.union(lastKey.frame)
             XCTAssertGreaterThanOrEqual(firstKey.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(firstKey.frame.height, 43.5)
+            XCTAssertGreaterThanOrEqual(ok.frame.width, 68)
             XCTAssertGreaterThanOrEqual(app.buttons["w"].frame.minX - firstKey.frame.maxX, 8)
             XCTAssertGreaterThan(space.frame.midY, app.frame.midY)
             if orientation.isLandscape {
@@ -543,8 +545,11 @@ final class JoystickUITests: XCTestCase {
                 XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
                 XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
                 if !folded {
-                    XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
-                    XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, 176 / 2 + 11)
+                    if portraitFrame.width >= 380 {
+                        XCTAssertGreaterThanOrEqual(ok.frame.width, 78)
+                    }
+                    let padRadius = ok.frame.width / 0.40 / 2
+                    XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, padRadius + 11)
                     XCTAssertEqual(keyRow.height, 52, accuracy: 1)
                     XCTAssertEqual(space.frame.height, 52, accuracy: 1)
                     XCTAssertLessThanOrEqual(app.buttons["Remote"].frame.minY - space.frame.maxY, 40)
@@ -1051,7 +1056,8 @@ final class JoystickUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(q.frame.height, 43.5)
         let ok = app.buttons["OK"]
         XCTAssertTrue(ok.isHittable)
-        XCTAssertGreaterThanOrEqual(ok.frame.width, 60)
+        XCTAssertGreaterThanOrEqual(ok.frame.width, 70)
+        XCTAssertTrue(app.buttons["tabletopTVSelection"].isHittable)
         XCTAssertLessThan(app.buttons["Down"].frame.maxY, letterRow.minY)
         XCTAssertLessThan(app.buttons["Clear"].frame.maxY, letterRow.minY)
         XCTAssertLessThan(app.buttons["Home"].frame.maxY, letterRow.minY)
@@ -1312,7 +1318,7 @@ final class JoystickUITests: XCTestCase {
         let clear = app.buttons["Clear"]
         let numberRow = app.buttons["1"].frame.union(app.buttons["0"].frame)
         XCTAssertEqual(ok.frame.midX, numberRow.midX, accuracy: 1)
-        XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(ok.frame.width, 94)
         XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
         XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
         XCTAssertLessThan(app.buttons["Down"].frame.maxY, numberRow.minY)
