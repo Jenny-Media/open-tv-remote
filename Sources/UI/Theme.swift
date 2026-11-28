@@ -149,7 +149,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var body: some View {
         interaction
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(accessibilityLabel)
+            .accessibilityLabel(dragPress == .inside ? pressedCharacter ?? accessibilityLabel : accessibilityLabel)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { fire() }
             .accessibilityActions {
@@ -197,7 +197,10 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             )
             .onChange(of: dragPress == .inside) { _, isPressed in
                 stopRepeating()
-                guard isPressed, enabled, isEnabled else { return }
+                guard isPressed, enabled, isEnabled else {
+                    pressedCharacter = nil
+                    return
+                }
                 if let holdAction {
                     held = false
                     repeatTask = Task { @MainActor in
@@ -222,7 +225,13 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     }
 
     @ViewBuilder private func face(pressed: Bool) -> some View {
-        let key = label()
+        let key = Group {
+            if pressed, let pressedCharacter {
+                Text(pressedCharacter)
+            } else {
+                label()
+            }
+        }
             .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(KeySurface(shape: shape, pressed: pressed, tint: tint))

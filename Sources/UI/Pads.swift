@@ -501,8 +501,9 @@ struct KeyboardPadView: View {
                    showsCharacterPreview: showsPreviews) {
                 typeCharacter(text)
             } label: {
-                Text(text).font(.system(size: 19, weight: .medium, design: .rounded))
+                Text(text)
             }
+            .font(.system(size: 19, weight: .medium, design: .rounded))
             .frame(width: width)
         }
     }
