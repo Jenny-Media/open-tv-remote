@@ -336,10 +336,12 @@ struct RemoteScreen: View {
             navRow
             if model.current != nil {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 24) {
+                    HStack(spacing: 0) {
                         DuoQuickControls()
                             .frame(width: 166)
                             .environment(\.layoutDirection, layoutDirection)
+                        Spacer(minLength: 24)
+                            .frame(maxWidth: 64)
                         tabletopDirectionPad
                             .environment(\.layoutDirection, layoutDirection)
                     }
