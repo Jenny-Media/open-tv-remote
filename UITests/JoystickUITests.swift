@@ -138,6 +138,13 @@ final class JoystickUITests: XCTestCase {
         let volume = app.buttons["Volume up"]
         XCTAssertTrue(volume.isHittable)
         XCTAssertEqual(stick.frame.midX < volume.frame.midX, remoteStartedOnLeft)
+        let tvPickers = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Living Room TV"))
+        let tv = tvPickers.firstMatch
+        XCTAssertEqual(tvPickers.count, 1)
+        XCTAssertTrue(tv.label.contains("Connected"))
+        XCTAssertLessThan(tv.frame.maxY, volume.frame.minY)
+        XCTAssertEqual(stick.frame.midX < tv.frame.midX, remoteStartedOnLeft)
+        captureKeyboard("Book TV picker on the \(remoteStartedOnLeft ? "right" : "left")")
         swap.tap()
         defer {
             if swap.isHittable && (stick.frame.midX < swap.frame.midX) != remoteStartedOnLeft { swap.tap() }
@@ -147,6 +154,12 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Volume"].isHittable)
         XCTAssertEqual(app.buttons.matching(identifier: "Volume up").count, 1)
         XCTAssertEqual(stick.frame.midX < volume.frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(stick.frame.midX < tv.frame.midX, !remoteStartedOnLeft)
+        captureKeyboard("Book TV picker on the \(remoteStartedOnLeft ? "left" : "right")")
+        tv.tap()
+        let devices = app.navigationBars["TVs"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 5))
+        devices.buttons["Done"].tap()
         volume.tap()
         XCTAssertEqual(log.label, "1:Volume up")
         XCTAssertFalse(app.navigationBars["Apps"].exists)
@@ -159,6 +172,7 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
         XCTAssertEqual(stick.frame.midX < swap.frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(stick.frame.midX < app.buttons["Volume up"].frame.midX, !remoteStartedOnLeft)
+        XCTAssertEqual(stick.frame.midX < tv.frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(log.label, "0:None")
     }
 

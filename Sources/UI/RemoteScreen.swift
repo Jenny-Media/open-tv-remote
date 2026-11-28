@@ -82,7 +82,7 @@ struct RemoteScreen: View {
                         tabletopKeyboardPane
                     } else {
                         VStack(spacing: 12) {
-                            remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
+                            remote(showHeader: !tabletop && !book, tabletop: tabletop, book: book, wide: wide,
                                    compactHeight: tabletop || layout.usesTrailingShortcuts,
                                    showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
                                    tablet: tablet, tabletLandscape: tablet && layout.controls.width > layout.controls.height,
@@ -154,6 +154,7 @@ struct RemoteScreen: View {
     private var bookControls: some View {
         ScrollView {
             VStack(spacing: 16) {
+                remoteHeader(showTV: true, showsShortcuts: false)
                 if !usesSystemToolbar {
                     ViewThatFits(in: .horizontal) {
                         TopBar(showsTVSelection: false).fixedSize(horizontal: true, vertical: false)
