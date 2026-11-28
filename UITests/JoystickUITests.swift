@@ -444,6 +444,7 @@ final class JoystickUITests: XCTestCase {
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
+    @MainActor
     func testHoldingAPortraitKeyboardCharacterTypesOnceAndResetsShift() throws {
         try requireStandardIPhone()
         let device = XCUIDevice.shared
@@ -455,7 +456,7 @@ final class JoystickUITests: XCTestCase {
         app.buttons["Shift"].tap()
         let capitalQ = app.buttons["Q"]
         XCTAssertTrue(capitalQ.waitForExistence(timeout: 5))
-        capitalQ.press(forDuration: 2.5)
+        try assertHeldCapitalQ(capitalQ, topKey: capitalQ)
         XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "1:Q")
         XCTAssertTrue(app.buttons["q"].isHittable)
         app.buttons["q"].tap()
@@ -620,6 +621,69 @@ final class JoystickUITests: XCTestCase {
         screenshot.name = name
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    @MainActor
+    private func assertHeldCapitalQ(_ key: XCUIElement, topKey: XCUIElement) throws {
+        XCTAssertTrue(key.isHittable)
+        let keyFrame = key.frame
+        let topFrame = topKey.frame
+        let window = app.windows.firstMatch
+        let windowFrame = window.frame
+        var heldScreenshot: XCUIScreenshot?
+        // XCTest services the main run loop while its synthesized touch is held down.
+        let capture = Timer(timeInterval: 2, repeats: false) { _ in
+            MainActor.assumeIsolated { heldScreenshot = window.screenshot() }
+        }
+        RunLoop.main.add(capture, forMode: .common)
+        key.press(forDuration: 4)
+        capture.invalidate()
+
+        let screenshot = try XCTUnwrap(heldScreenshot, "Expected a screenshot during the press")
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Keyboard while holding Shifted Q"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let image = try XCTUnwrap(UIImage(data: screenshot.pngRepresentation))
+        let scale = image.size.width / windowFrame.width
+        let inPixels = CGAffineTransform(translationX: -windowFrame.minX, y: -windowFrame.minY)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        func crop(_ bounds: CGRect) -> UIImage {
+            let frame = bounds.integral
+            return UIGraphicsImageRenderer(size: frame.size, format: format).image { _ in
+                image.draw(at: CGPoint(x: -frame.minX, y: -frame.minY))
+            }
+        }
+
+        let previewRegion = CGRect(x: topFrame.minX - 4, y: topFrame.minY - 60,
+                                   width: max(topFrame.width + 16, 64), height: keyFrame.minY - topFrame.minY + 60)
+        let cropRect = previewRegion.applying(inPixels).integral
+        let previewCrop = crop(cropRect)
+        let clearance = XCTAttachment(image: previewCrop)
+        clearance.name = "Keyboard preview clearance"
+        add(clearance)
+        let previewBounds = try XCTUnwrap(coloredBounds(in: previewCrop) { red, green, blue in
+            green > 100 && Int(green) - Int(red) > 30 && Int(green) - Int(blue) > 12
+        }, "Expected the preview outline above the pressed key")
+        XCTAssertLessThan(previewRegion.minY + previewBounds.maxY * previewRegion.height, topFrame.minY)
+
+        let previewText = CGRect(x: cropRect.minX + previewBounds.minX * cropRect.width,
+                                 y: cropRect.minY + previewBounds.minY * cropRect.height,
+                                 width: previewBounds.width * cropRect.width,
+                                 height: previewBounds.height * cropRect.height)
+        let bubble = crop(previewText)
+        let face = crop(keyFrame.applying(inPixels))
+        for (name, image) in [("preview", bubble), ("held key", face)] {
+            let glyph = try XCTUnwrap(coloredBounds(in: image) { red, green, blue in
+                min(red, green, blue) > 180
+            }, "Expected a glyph on the \(name)")
+            let aspect = glyph.width * image.size.width / (glyph.height * image.size.height)
+            // In the rounded key font, an uppercase Q is wider relative to its height than lowercase q.
+            XCTAssertTrue((0.75...0.90).contains(aspect), "Expected uppercase Q on the \(name), aspect \(aspect)")
+        }
     }
 
     func testIPadNarrowKeyboardKeepsUsableKeys() throws {
@@ -1233,6 +1297,7 @@ final class JoystickUITests: XCTestCase {
         captureKeyboard("iPhone Duo open landscape keyboard")
     }
 
+    @MainActor
     func testFlatDuoPortraitKeyboardShowsANumberRow() throws {
         try requireDuoPosture("flat-portrait")
         launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard"])
@@ -1252,8 +1317,25 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
         XCTAssertLessThan(app.buttons["Down"].frame.maxY, numberRow.minY)
         captureKeyboard("iPhone Duo open portrait keyboard")
-        app.buttons["q"].press(forDuration: 2.5)
+        app.buttons["Shift"].tap()
+        try assertHeldCapitalQ(app.buttons["Q"], topKey: app.buttons["1"])
         assertDuoNumberRowAboveLetters()
+
+        let space = app.buttons["Space"].frame
+        XCTAssertEqual(space.height, 52, accuracy: 1)
+        app.buttons["Numbers and symbols"].tap()
+        assertDuoLayer(topKey: "1", space: space, capture: "iPhone Duo open portrait numbers")
+        app.buttons["More symbols"].tap()
+        assertDuoLayer(topKey: "[", space: space, capture: "iPhone Duo open portrait symbols")
+    }
+
+    private func assertDuoLayer(topKey: String, space: CGRect, capture: String) {
+        let key = app.buttons[topKey]
+        XCTAssertTrue(key.isHittable)
+        XCTAssertEqual(key.frame.height, space.height, accuracy: 1)
+        XCTAssertEqual(app.buttons["Space"].frame.height, space.height, accuracy: 1)
+        XCTAssertEqual(app.buttons["Space"].frame.maxY, space.maxY, accuracy: 1)
+        captureKeyboard(capture)
     }
 
     private func assertDuoNumberRowAboveLetters() {

@@ -305,7 +305,8 @@ struct KeyboardPadView: View {
             let isPortrait = posture.usesPortraitSpacing
             VStack(spacing: navigationSpacing) {
                 phoneKeyboardNavigation(posture, stacked: stackedNavigation, padSize: padSize)
-                keyGrid(tablet: false, addsNumberRow: showsNumberRow, showsCharacterPreviews: showsPreviews)
+                keyGrid(tablet: false, addsNumberRow: showsNumberRow, showsCharacterPreviews: showsPreviews,
+                        keepsNumberRowSpace: isPortrait && showsNumberRow)
                     .frame(maxHeight: isPortrait ? portraitGridHeight : .infinity)
             }
             .frame(maxHeight: .infinity, alignment: isPortrait ? .bottom : .center)
@@ -346,7 +347,7 @@ struct KeyboardPadView: View {
     }
 
     private func keyGrid(tablet: Bool, inlineEditing: Bool = true, addsNumberRow: Bool = false,
-                         showsCharacterPreviews: Bool = false) -> some View {
+                         showsCharacterPreviews: Bool = false, keepsNumberRowSpace: Bool = false) -> some View {
         GeometryReader { geo in
             let showsNumberRow = addsNumberRow || !inlineEditing || (tablet && geo.size.width >= Self.minimumTabletKeyGridWidth)
             let rows = self.rows(numberRow: showsNumberRow, inlineEditing: inlineEditing)
@@ -357,14 +358,21 @@ struct KeyboardPadView: View {
             if inlineEditing && adaptiveKeyboardLayout && keyWidth < (tablet ? 28 : Self.minimumPhoneKeyWidth) {
                 narrowKeys(rows)
             } else {
+                // Keep the editing row anchored and size all layers using the letter layer's row count.
+                let letterLayerRowCount = CGFloat(Self.letters.count + 2)
+                let heightForKeys = geo.size.height - (letterLayerRowCount - 1) * keyGap
+                let maximumKeyHeight = keepsNumberRowSpace
+                    ? max(0, heightForKeys / letterLayerRowCount) : Self.maximumKeyHeight
                 fullKeys(rows, width: keyWidth, gap: keyGap, inlineEditing: inlineEditing,
-                         showsCharacterPreviews: showsCharacterPreviews)
+                         showsCharacterPreviews: showsCharacterPreviews, maximumKeyHeight: maximumKeyHeight,
+                         alignment: keepsNumberRowSpace ? .bottom : .center)
             }
         }
     }
 
     @ViewBuilder private func fullKeys(_ rows: [[String]], width: CGFloat, gap: CGFloat, inlineEditing: Bool,
-                                       showsCharacterPreviews: Bool) -> some View {
+                                       showsCharacterPreviews: Bool, maximumKeyHeight: CGFloat,
+                                       alignment: Alignment) -> some View {
         let wide = width * 1.5 + gap / 2
         let editingWidth = inlineEditing ? max(44, wide) : wide
         let grid = VStack(spacing: gap) {
@@ -390,15 +398,17 @@ struct KeyboardPadView: View {
                 if inlineEditing { returnButton.frame(width: editingWidth) }
             }
         }
-        .frame(maxHeight: CGFloat(rows.count + 1) * Self.maximumKeyHeight + CGFloat(rows.count) * gap)
-        if showsCharacterPreviews {
-            grid.overlayPreferenceValue(PressedKeyboardCharacter.self) { key in
-                if let key { KeyboardCharacterPreview(key: key) }
+        .frame(maxHeight: CGFloat(rows.count + 1) * maximumKeyHeight + CGFloat(rows.count) * gap)
+        Group {
+            if showsCharacterPreviews {
+                grid.overlayPreferenceValue(PressedKeyboardCharacter.self) { key in
+                    if let key { KeyboardCharacterPreview(key: key) }
+                }
+            } else {
+                grid
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            grid.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
     }
 
     private func narrowKeys(_ rows: [[String]]) -> some View {
