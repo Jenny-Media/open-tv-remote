@@ -125,13 +125,36 @@ struct PairingSheet: View {
 
 // MARK: - Keyboard
 
+struct KeyboardSheetButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            model.showKeyboard(continuingPadEditing: true)
+        } label: {
+            Label("Type on your TV", systemImage: "keyboard")
+                .font(.headline)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Theme.accent)
+        .foregroundStyle(.black)
+    }
+}
+
 struct KeyboardSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @FocusState private var focused: Bool
+    var continuesPadEditing = false
+
+    private var usesPadDraft: Bool { continuesPadEditing && !model.typesLive }
+    private var tracksLiveText: Bool { continuesPadEditing && model.typesLive }
 
     var body: some View {
+        @Bindable var model = model
         let deviceID = model.currentID
         VStack(spacing: 16) {
             HStack {
@@ -140,7 +163,7 @@ struct KeyboardSheet: View {
                 Button("Done") { dismiss() }.buttonStyle(.plain).foregroundStyle(Theme.accent).fontWeight(.semibold)
             }
             HStack(spacing: 10) {
-                TextField("Search or type…", text: $text)
+                TextField("Search or type…", text: usesPadDraft ? $model.typed : $text)
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .autocorrectionDisabled()
@@ -149,9 +172,9 @@ struct KeyboardSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 48)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
-                KeyCap(enabled: model.canSendTVDelete, accessibilityLabel: "Delete on TV",
-                       repeatAction: model.repeatAction(for: .backspace)) {
-                    model.press(.backspace)
+                KeyCap(enabled: model.canSendTVDelete, accessibilityLabel: "Delete on TV", repeatAction: repeatDelete) {
+                    if tracksLiveText { model.typeDelete() }
+                    else { model.press(.backspace) }
                 } label: {
                     Image(systemName: "delete.left").font(.system(size: 17, weight: .semibold))
                 }
@@ -167,7 +190,7 @@ struct KeyboardSheet: View {
                         .background(Circle().fill(Theme.accent))
                 }
                 .buttonStyle(PressScaleStyle())
-                .disabled(text.isEmpty)
+                .disabled((usesPadDraft ? model.typed : text).isEmpty)
                 .accessibilityLabel("Send text")
             }
             Text("Select a search box on your TV first, then type here.")
@@ -179,6 +202,9 @@ struct KeyboardSheet: View {
         .padding(20)
         .background(Theme.background.ignoresSafeArea())
         .onAppear { focused = true }
+        .onChange(of: model.currentID) { _, _ in
+            if continuesPadEditing { dismiss() }
+        }
         #if os(iOS)
         .presentationDetents([.height(210)])
         #else
@@ -186,11 +212,20 @@ struct KeyboardSheet: View {
         #endif
     }
 
+    private var repeatDelete: (RemoteInputRequest) async -> Void {
+        if tracksLiveText {
+            return { request in await model.repeatTypeDelete(request: request, fromKeyboardSheet: true) }
+        }
+        return model.repeatAction(for: .backspace)
+    }
+
     /// Sends the whole text at once, then gets out of the way so the TV's search can be navigated.
     private func send(playsFeedback: Bool) {
+        let text = usesPadDraft ? model.typed : self.text
         guard !text.isEmpty else { return }
         if playsFeedback { Haptics.tap() }
-        model.sendText(text)
+        if continuesPadEditing { model.submitKeyboardPadText(text) }
+        else { model.sendText(text) }
         dismiss()
     }
 }

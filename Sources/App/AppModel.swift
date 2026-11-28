@@ -17,6 +17,7 @@ final class AppModel: TVDriverDelegate {
 
     var showingDevices = false
     var showingKeyboard = false
+    private(set) var keyboardSheetContinuesPadEditing = false
     var showingApps = false
     var showingSettings = false
     var showingRemoteGuide = false
@@ -109,7 +110,7 @@ final class AppModel: TVDriverDelegate {
             switch DemoMode.sheet {
             case "apps": showingApps = true
             case "devices": showingDevices = true
-            case "keyboard": showingKeyboard = true
+            case "keyboard": showKeyboard()
             case "settings": showingSettings = true
             default: break
             }
@@ -183,6 +184,7 @@ final class AppModel: TVDriverDelegate {
         devices.removeAll { $0.id == device.id }
         DeviceStore.save(devices)
         if device.id == currentID {
+            resetKeyboardPad()
             pairingFeedback.cancel()
             driver?.disconnect()
             driver = nil
@@ -198,6 +200,7 @@ final class AppModel: TVDriverDelegate {
     }
 
     private func activate(_ device: TVDevice) {
+        if currentID != device.id { resetKeyboardPad() }
         pairingFeedback.cancel()
         driver?.disconnect()
         relocateTask?.cancel()
@@ -467,12 +470,31 @@ final class AppModel: TVDriverDelegate {
 
     // MARK: Keyboard pad
 
+    func showKeyboard(continuingPadEditing: Bool = false) {
+        keyboardSheetContinuesPadEditing = continuingPadEditing
+        showingKeyboard = true
+    }
+
     /// What's been typed on the keyboard pad since the last Return, for clear and for TVs that don't type live.
     var typed = ""
     @ObservationIgnored private var pendingTypeDelete: RemoteInputRequest?
 
     var typesLive: Bool { driver?.typesLive ?? true }
     var canSendTVDelete: Bool { !isConnectionPaused && supports(.backspace) }
+
+    /// Buffered TVs receive the complete draft. Live TVs receive only the new text.
+    func submitKeyboardPadText(_ text: String) {
+        if typesLive {
+            type(text)
+        } else {
+            cancelPendingTypeDelete()
+            typed = ""
+            #if DEBUG
+            recordDemoInput(text)
+            #endif
+            sendText(text)
+        }
+    }
 
     /// Each character goes to the TV as it's typed, where the TV appends what it's sent.
     func type(_ text: String) {
@@ -491,8 +513,8 @@ final class AppModel: TVDriverDelegate {
         if typesLive { press(.backspace) }
     }
 
-    func repeatTypeDelete(request: RemoteInputRequest) async {
-        guard remoteCommandsAvailable, request.canDispatch else {
+    func repeatTypeDelete(request: RemoteInputRequest, fromKeyboardSheet: Bool = false) async {
+        guard (remoteCommandsAvailable || (fromKeyboardSheet && showingKeyboard)), request.canDispatch else {
             request.cancel()
             return
         }
@@ -506,7 +528,7 @@ final class AppModel: TVDriverDelegate {
             request.cancel()
             return
         }
-        guard pendingTypeDelete == nil, remoteInputAvailable else { return }
+        guard pendingTypeDelete == nil, state == .connected else { return }
         pendingTypeDelete = request
         let onRepeatDispatch = request.onDispatch
         request.onDispatch = { [weak self, weak request] in
@@ -526,6 +548,11 @@ final class AppModel: TVDriverDelegate {
         // A deliberate edit takes precedence over a repeat that is still waiting.
         pendingTypeDelete?.cancel()
         pendingTypeDelete = nil
+    }
+
+    private func resetKeyboardPad() {
+        cancelPendingTypeDelete()
+        typed = ""
     }
 
     /// Deletes what's been typed since the last Return.

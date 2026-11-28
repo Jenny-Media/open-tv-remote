@@ -179,6 +179,14 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(media.waitForExistence(timeout: 5))
         XCTAssertFalse(pinnedMedia.exists)
         XCTAssertFalse(volume.exists)
+        XCTAssertTrue(swap.isHittable)
+        let home = app.buttons["Home"]
+        let homeStartedOnLeft = home.frame.midX < stick.frame.midX
+        swap.tap()
+        XCTAssertEqual(home.frame.midX < stick.frame.midX, !homeStartedOnLeft)
+        XCTAssertFalse(pinnedMedia.exists)
+        swap.tap()
+        XCTAssertEqual(home.frame.midX < stick.frame.midX, homeStartedOnLeft)
 
         media.tap()
         let pin = app.buttons["Pin on iPad"]
@@ -201,7 +209,12 @@ final class JoystickUITests: XCTestCase {
 
         swap.tap()
         defer {
-            if swap.isHittable, (stick.frame.midX < volume.frame.midX) != startedOnLeft { swap.tap() }
+            if swap.isHittable && stick.exists {
+                let sideChanged = volume.exists
+                    ? (stick.frame.midX < volume.frame.midX) != startedOnLeft
+                    : (home.frame.midX < stick.frame.midX) != homeStartedOnLeft
+                if sideChanged { swap.tap() }
+            }
         }
         XCTAssertEqual(stick.frame.midX < volume.frame.midX, !startedOnLeft)
         XCTAssertEqual(log.label, "0:None")
@@ -355,6 +368,30 @@ final class JoystickUITests: XCTestCase {
                       environment["OPEN_REMOTE_DUO_POSTURE"] != nil,
                       "Duo uses its posture-specific keyboard tests.")
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
+    }
+
+    func testShortPhoneLandscapeKeepsTypingReachableWithPairingBanner() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .landscapeRight
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard", "-demoUnpaired", "YES"])
+        XCTAssertTrue(app.buttons["Pair"].waitForExistence(timeout: 5))
+        let typing = app.buttons["phoneKeyboardSheet"]
+        XCTAssertTrue(typing.isHittable)
+        XCTAssertTrue(app.buttons["OK"].isHittable)
+        XCTAssertTrue(app.buttons["Clear"].isHittable)
+        XCTAssertFalse(app.buttons["Return"].exists)
+        XCTAssertLessThanOrEqual(typing.frame.maxY, app.buttons["Watch"].frame.minY)
+        XCTAssertTrue(app.buttons["Home"].isHittable)
+
+        typing.tap()
+        let field = app.textFields["Search or type…"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.isHittable)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(typing.isHittable)
     }
 
     func testFoldedDuoKeyboardFitsPortraitAndLandscape() throws {
@@ -540,12 +577,23 @@ final class JoystickUITests: XCTestCase {
     }
 
     func testIPadLandscapeCursorCanSwapSidesWithMediaUnpinned() throws {
+        try assertIPadLandscapeCursorCanSwapSides()
+    }
+
+    func testIPadLandscapeCursorCanSwapSidesWithAccessibilityText() throws {
+        try assertIPadLandscapeCursorCanSwapSides(accessibilityText: true)
+    }
+
+    private func assertIPadLandscapeCursorCanSwapSides(accessibilityText: Bool = false) throws {
         try requireIPad()
         let device = XCUIDevice.shared
         let original = device.orientation
         defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
         device.orientation = .landscapeRight
-        let arguments = ["-demoLGCursor", "YES", "-padMode", "cursor", "-ipad.mediaControlsPinned", "NO"]
+        var arguments = ["-demoLGCursor", "YES", "-padMode", "cursor", "-ipad.mediaControlsPinned", "NO"]
+        if accessibilityText {
+            arguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityM"]
+        }
         launch(openMode: false, logInput: false, additionalArguments: arguments)
 
         let settings = app.buttons["lgCursorSettings"]
@@ -554,6 +602,7 @@ final class JoystickUITests: XCTestCase {
         let swap = app.buttons["ipadCursorSwapSides"]
         let sheet = app.navigationBars["Cursor Settings"]
         XCTAssertTrue(strip.waitForExistence(timeout: 5))
+        if accessibilityText { XCTAssertTrue(app.buttons["remoteModePicker"].exists) }
         XCTAssertTrue(app.buttons["Media Controls"].isHittable)
         XCTAssertFalse(app.staticTexts["ipadPinnedMedia"].exists)
         let stripStartedOnLeft = strip.frame.midX < touchpad.frame.midX
@@ -826,7 +875,7 @@ final class JoystickUITests: XCTestCase {
         let original = device.orientation
         defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
         device.orientation = .portrait
-        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard", "-demoShortTabletop", "YES"])
+        launch(openMode: false, additionalArguments: ["-padMode", "keyboard", "-demoShortTabletop", "YES"])
 
         let typing = app.buttons["tabletopKeyboardSheet"]
         XCTAssertTrue(typing.waitForExistence(timeout: 5))
@@ -838,7 +887,7 @@ final class JoystickUITests: XCTestCase {
             XCTAssertLessThan(control.frame.maxY, typing.frame.minY)
         }
         XCTAssertLessThan(typing.frame.maxY, app.buttons["Watch"].frame.minY)
-        assertTabletopDirectionPadOnRight(minimumGap: 23.5)
+        assertShortTabletopCompanionFits()
         captureKeyboard("Short Tabletop typing action")
 
         typing.tap()
@@ -852,6 +901,75 @@ final class JoystickUITests: XCTestCase {
         app.buttons["Send text"].tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5))
         XCTAssertTrue(typing.isHittable)
+        let input = app.staticTexts["demoPadInputLog"]
+        XCTAssertEqual(input.label, "1:Nature documentaries")
+        app.buttons["Clear"].tap()
+        XCTAssertEqual(input.label, "\("Nature documentaries".count + 1):Delete")
+    }
+
+    func testShortTabletopStacksControlsInANarrowWindow() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, logInput: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoShortTabletop", "YES", "-demoShortTabletopCompanionWidth", "375",
+        ])
+        XCTAssertTrue(app.buttons["tabletopKeyboardSheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Volume up"].isHittable)
+        XCTAssertTrue(app.buttons["Left"].isHittable)
+        XCTAssertLessThan(app.buttons["Play or pause"].frame.maxY, app.buttons["Left"].frame.minY)
+        assertShortTabletopCompanionFits()
+    }
+
+    func testShortTabletopSheetCarriesAndSubmitsTheBufferedDraft() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone &&
+                          ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] != "iPhone19,4",
+                          "Requires a rotating iPhone simulator.")
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .landscapeRight
+        launch(openMode: false, additionalArguments: [
+            "-padMode", "keyboard", "-demoShortTabletop", "YES", "-demoBufferedKeyboard", "YES",
+        ])
+        let q = app.buttons["q"]
+        XCTAssertTrue(q.waitForExistence(timeout: 5))
+        q.tap()
+        app.buttons["w"].tap()
+
+        device.orientation = .portrait
+        let typing = app.buttons["tabletopKeyboardSheet"]
+        XCTAssertTrue(typing.waitForExistence(timeout: 5))
+        typing.tap()
+        let field = app.textFields["Search or type…"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "qw")
+        field.typeText("e")
+        XCTAssertEqual(field.value as? String, "qwe")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+
+        typing.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "qwe")
+        app.buttons["Send text"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "3:qwe")
+        typing.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Send text"].isEnabled)
+    }
+
+    private func assertShortTabletopCompanionFits() {
+        let navigationWidth = app.buttons["Back"].frame.union(app.buttons["Home"].frame).width
+        if navigationWidth >= 346 {
+            assertTabletopDirectionPadOnRight(minimumGap: 23.5)
+        } else {
+            XCTAssertLessThan(app.buttons["Play or pause"].frame.maxY, app.buttons["Left"].frame.minY)
+            assertClearBelowDPad()
+        }
     }
 
     private func assertTabletopDirectionPadOnRight(minimumGap: CGFloat) {

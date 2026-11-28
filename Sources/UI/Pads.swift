@@ -114,6 +114,8 @@ struct KeyboardPadView: View {
 
     private static let defaultKeyGap: CGFloat = 6
     private static let maximumKeyHeight: CGFloat = 64
+    private static let phoneClearHeight: CGFloat = 48
+    private static let foldedNavigationSideInset: CGFloat = 72
     static let minimumPhoneKeyGridHeight: CGFloat = 4 * 44 + 3 * defaultKeyGap
     static let minimumTabletKeyGridWidth: CGFloat = 10 * 44 + 9 * defaultKeyGap
 
@@ -166,28 +168,58 @@ struct KeyboardPadView: View {
 
     private func phoneKeyboard(_ posture: PhoneLayout) -> some View {
         GeometryReader { viewport in
-            if posture == .adaptive && viewport.size.width >= 480 && viewport.size.height < 360 {
-                let padSize = min(108, max(64, viewport.size.height - 56))
-                HStack(spacing: 12) {
-                    VStack(spacing: 8) {
-                        DPadView().frame(width: padSize, height: padSize)
-                        phoneClearButton
-                    }
-                    keyGrid(tablet: false)
-                }
+            let width = viewport.size.width
+            let height = viewport.size.height
+            let sideBySide = posture == .adaptive && width >= 480 && height < 360
+            let padSize = sideBySide ? min(108, max(64, height - Self.phoneClearHeight - 8))
+                                     : min(132, max(60, width - 72))
+            let stackedNavigation = posture == .portrait ||
+                (posture == .foldedPortrait && width < padSize + 2 * Self.foldedNavigationSideInset)
+            let minimumHeight = sideBySide
+                ? max(Self.minimumPhoneKeyGridHeight, padSize + 8 + Self.phoneClearHeight)
+                : padSize + (stackedNavigation ? 10 + Self.phoneClearHeight : 0)
+                    + (posture == .portrait ? 22 : 10) + Self.minimumPhoneKeyGridHeight
+            if height < minimumHeight {
+                shortPhoneKeyboard(height: height)
             } else {
-                let width = viewport.size.width
-                let padSize = min(132, max(60, width - 72))
-                let isPortrait = posture == .portrait
-                VStack(spacing: isPortrait ? 22 : 10) {
-                    phoneKeyboardNavigation(posture, padSize: padSize)
-                    keyGrid(tablet: false)
-                        .frame(maxHeight: isPortrait ? 4 * Self.maximumKeyHeight + 3 * gap : .infinity)
-                }
-                .frame(maxHeight: .infinity)
+                phoneKeyboardContent(posture, sideBySide: sideBySide, padSize: padSize)
             }
         }
         .clipped()
+    }
+
+    private func shortPhoneKeyboard(height: CGFloat) -> some View {
+        let padSize = min(108, max(64, height))
+        let typing = KeyboardSheetButton().accessibilityIdentifier("phoneKeyboardSheet")
+        return ViewThatFits {
+            HStack(spacing: 12) {
+                DPadView().frame(width: padSize, height: padSize)
+                phoneClearButton
+                typing
+            }
+            typing
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private func phoneKeyboardContent(_ posture: PhoneLayout, sideBySide: Bool, padSize: CGFloat) -> some View {
+        if sideBySide {
+            HStack(spacing: 12) {
+                VStack(spacing: 8) {
+                    DPadView().frame(width: padSize, height: padSize)
+                    phoneClearButton
+                }
+                keyGrid(tablet: false)
+            }
+        } else {
+            let isPortrait = posture == .portrait
+            VStack(spacing: isPortrait ? 22 : 10) {
+                phoneKeyboardNavigation(posture, padSize: padSize)
+                keyGrid(tablet: false)
+                    .frame(maxHeight: isPortrait ? 4 * Self.maximumKeyHeight + 3 * gap : .infinity)
+            }
+            .frame(maxHeight: .infinity)
+        }
     }
 
     @ViewBuilder private func phoneKeyboardNavigation(_ posture: PhoneLayout, padSize: CGFloat) -> some View {
@@ -200,7 +232,7 @@ struct KeyboardPadView: View {
             }
         case .foldedPortrait:
             ViewThatFits(in: .horizontal) {
-                pad.padding(.horizontal, 72)
+                pad.padding(.horizontal, Self.foldedNavigationSideInset)
                     .overlay(alignment: .trailing) { phoneClearButton }
                 VStack(spacing: 10) {
                     pad
@@ -216,7 +248,7 @@ struct KeyboardPadView: View {
     }
 
     private var phoneClearButton: some View {
-        KeyboardClearButton().frame(width: 60, height: 48)
+        KeyboardClearButton().frame(width: 60, height: Self.phoneClearHeight)
     }
 
     private func rows(numberRow: Bool, inlineEditing: Bool = true) -> [[String]] {

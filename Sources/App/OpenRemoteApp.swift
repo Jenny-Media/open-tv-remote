@@ -82,7 +82,9 @@ struct RootView: View {
             .frame(minWidth: 380, minHeight: 760)
             #endif
             .sheet(isPresented: $model.showingDevices, onDismiss: model.presentPendingRemoteShortcut) { DevicesSheet() }
-            .sheet(isPresented: $model.showingKeyboard, onDismiss: model.presentPendingRemoteShortcut) { KeyboardSheet() }
+            .sheet(isPresented: $model.showingKeyboard, onDismiss: model.presentPendingRemoteShortcut) {
+                KeyboardSheet(continuesPadEditing: model.keyboardSheetContinuesPadEditing)
+            }
             .sheet(isPresented: $model.showingApps, onDismiss: model.presentPendingRemoteShortcut) { AppsSheet() }
             .sheet(isPresented: $model.showingRemoteGuide, onDismiss: model.presentPendingRemoteShortcut) {
                 RemoteGuideSheet(showsCursor: model.supportsCursor)
@@ -259,7 +261,7 @@ private struct DuoRemoteToolbar: ViewModifier {
         .visibilityPriority(.high)
 
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Keyboard", systemImage: "keyboard") { model.showingKeyboard = true }
+            Button("Keyboard", systemImage: "keyboard") { model.showKeyboard() }
         }
 
         if model.current != nil {

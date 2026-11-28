@@ -121,6 +121,7 @@ private struct CursorControls: View {
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: enabled) { _, _ in sender.stop() }
         .onChange(of: sessionID) { _, _ in sender.stop() }
+        .onChange(of: scrollStripOnLeading) { _, _ in sender.stop() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { sender.stop() } }
         .onDisappear { sender.stop() }
         .sheet(isPresented: $showingCursorSettings) {

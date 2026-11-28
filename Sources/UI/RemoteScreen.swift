@@ -85,7 +85,8 @@ struct RemoteScreen: View {
                             remote(showHeader: !tabletop, tabletop: tabletop, book: book, wide: wide,
                                    compactHeight: tabletop || layout.usesTrailingShortcuts,
                                    showsShortcuts: !usesSystemToolbar && !tabletop && !book && !layout.usesTrailingShortcuts,
-                                   tablet: tablet, mediaPin: layout.usesTrailingShortcuts && !usesSystemToolbar ? nil : mediaPin,
+                                   tablet: tablet, tabletLandscape: tablet && layout.controls.width > layout.controls.height,
+                                   mediaPin: layout.usesTrailingShortcuts && !usesSystemToolbar ? nil : mediaPin,
                                    mediaAboveKeys: bottomMedia && mode == .keyboard, phoneKeyboardLayout: phoneKeyboardLayout)
                                 .id(bottomMedia)
                             if bottomMedia && mode != .keyboard {
@@ -132,7 +133,7 @@ struct RemoteScreen: View {
 
     private func windowLayout(in geometry: GeometryProxy) -> RemoteWindowLayout {
         #if DEBUG
-        if DemoMode.showsShortTabletop {
+        if DemoMode.showsShortTabletop && geometry.size.height > geometry.size.width {
             // The fixture reserves a 34-point hinge and leaves a 160-point controls pane.
             let division = CGRect(x: 0, y: geometry.size.height - 200, width: geometry.size.width, height: 34)
             return RemoteWindowLayout(size: geometry.size, division: division)
@@ -180,7 +181,7 @@ struct RemoteScreen: View {
                 let companionWidth = min(248, width * 0.28, max(0, width - 24 - KeyboardPadView.minimumTabletKeyGridWidth))
                 let remoteWidth = showsCompanion ? max(0, width - companionWidth - 24) : width
                 HStack(spacing: 24) {
-                    tabletMainControls
+                    tabletMainControls(showsMedia: showsMedia)
                         .environment(\.layoutDirection, layoutDirection)
                         .frame(width: remoteWidth)
                         .id(showsMedia)
@@ -217,7 +218,7 @@ struct RemoteScreen: View {
         .overlay(alignment: .bottomTrailing) { inputLog }
     }
 
-    @ViewBuilder private var tabletMainControls: some View {
+    @ViewBuilder private func tabletMainControls(showsMedia: Bool) -> some View {
         switch model.remoteControlMode {
         case .keyboard:
             tabletKeyboardControls(stacked: false)
@@ -243,8 +244,9 @@ struct RemoteScreen: View {
             }
             .frame(maxHeight: 460)
         case .eyesFree:
-            JoystickScreen(compactHeight: true, navigationAlignment: tabletPadOnLeading ? .leading : .trailing)
-                .frame(maxHeight: 680)
+            JoystickScreen(compactHeight: true, navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
+                           swapSides: showsMedia ? nil : { tabletRemoteOnRight.toggle() })
+            .frame(maxHeight: 680)
         case .cursor:
             CursorScreen(wide: true, surfaceOnly: true, scrollStripOnLeading: tabletPadOnLeading,
                          navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
@@ -308,6 +310,9 @@ struct RemoteScreen: View {
                         VStack(spacing: 8) {
                             tabletopTVStatus(prominent: false)
                             tabletopKeyboardNavigation
+                                #if DEBUG
+                                .frame(maxWidth: DemoMode.shortTabletopCompanionWidth ?? .infinity)
+                                #endif
                         }
                         .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottom)
                     }
@@ -405,18 +410,7 @@ struct RemoteScreen: View {
                     KeyboardPadView(layout: .phoneKeys)
                         .environment(\.adaptiveKeyboardLayout, true)
                 } else {
-                    Button {
-                        Haptics.tap()
-                        model.showingKeyboard = true
-                    } label: {
-                        Label("Type on your TV", systemImage: "keyboard")
-                            .font(.headline)
-                            .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .foregroundStyle(.black)
-                    .accessibilityIdentifier("tabletopKeyboardSheet")
+                    KeyboardSheetButton().accessibilityIdentifier("tabletopKeyboardSheet")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -447,7 +441,8 @@ struct RemoteScreen: View {
     #endif
 
     private func remote(showHeader: Bool, tabletop: Bool, book: Bool = false, wide: Bool = false, compactHeight: Bool = false,
-                        showsShortcuts: Bool = true, tablet: Bool = false, mediaPin: Binding<Bool>? = nil,
+                        showsShortcuts: Bool = true, tablet: Bool = false, tabletLandscape: Bool = false,
+                        mediaPin: Binding<Bool>? = nil,
                         mediaAboveKeys: Bool = false, phoneKeyboardLayout: KeyboardPadView.PhoneLayout = .adaptive) -> some View {
         let tabletKeyboard = tablet && mode == .keyboard
         #if os(iOS)
@@ -489,7 +484,13 @@ struct RemoteScreen: View {
             case .eyesFree:
                 JoystickScreen(compactHeight: compactHeight)
             case .cursor:
+                #if os(iOS)
+                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop,
+                             scrollStripOnLeading: tabletLandscape && tabletPadOnLeading,
+                             swapSides: tabletLandscape ? { tabletRemoteOnRight.toggle() } : nil)
+                #else
                 CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop)
+                #endif
             }
         }
         .padding(.horizontal, 20)
@@ -746,7 +747,7 @@ struct RemoteScreen: View {
             }
         }
         if press.characters == "k" {
-            model.showingKeyboard = true
+            model.showKeyboard()
             return .handled
         }
         guard let key else { return .ignored }
@@ -919,7 +920,7 @@ private struct TopBar: View {
             }
 
             KeyCap(shape: Circle(), accessibilityLabel: "Keyboard") {
-                model.showingKeyboard = true
+                model.showKeyboard()
             } label: {
                 Image(systemName: "keyboard").font(.system(size: 16, weight: .semibold))
             }
