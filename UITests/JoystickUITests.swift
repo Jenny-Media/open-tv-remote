@@ -444,6 +444,24 @@ final class JoystickUITests: XCTestCase {
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
+    func testHoldingAPortraitKeyboardCharacterTypesOnceAndResetsShift() throws {
+        try requireStandardIPhone()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, additionalArguments: ["-padMode", "keyboard"])
+
+        app.buttons["Shift"].tap()
+        let capitalQ = app.buttons["Q"]
+        XCTAssertTrue(capitalQ.waitForExistence(timeout: 5))
+        capitalQ.press(forDuration: 2.5)
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "1:Q")
+        XCTAssertTrue(app.buttons["q"].isHittable)
+        app.buttons["q"].tap()
+        XCTAssertEqual(app.staticTexts["demoPadInputLog"].label, "2:q")
+    }
+
     func testNarrowIPhonePortraitKeyboardKeepsClearBelowTheDPad() throws {
         try requireStandardIPhone()
         let device = XCUIDevice.shared
@@ -528,7 +546,8 @@ final class JoystickUITests: XCTestCase {
                     XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, 176 / 2 + 11)
                     XCTAssertEqual(keyRow.height, 52, accuracy: 1)
                     XCTAssertEqual(space.frame.height, 52, accuracy: 1)
-                    XCTAssertLessThanOrEqual(app.buttons["Remote"].frame.minY - space.frame.maxY, 32)
+                    XCTAssertLessThanOrEqual(app.buttons["Remote"].frame.minY - space.frame.maxY, 40)
+                    XCTAssertGreaterThan(keyRow.minY - app.buttons["Down"].frame.maxY, 30)
                 }
             } else {
                 assertClearBelowDPad()

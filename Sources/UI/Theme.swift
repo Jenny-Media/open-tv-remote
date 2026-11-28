@@ -126,6 +126,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     var holdName = "Hold"
     var repeatAction: ((RemoteInputRequest) async -> Void)? = nil
     var repeatRequiresCurrentConnection = true
+    var characterPreviewAlignment: Alignment? = nil
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
@@ -140,6 +141,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
     @State private var repeatTask: Task<Void, Never>?
     @State private var repeatRequest: RemoteInputRequest?
     @State private var held = false
+    @State private var pressedCharacter: String?
     #if os(iOS)
     @State private var holdHighlighted = false
     #endif
@@ -206,6 +208,7 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
                     }
                     return
                 }
+                if characterPreviewAlignment != nil { pressedCharacter = accessibilityLabel }
                 fire()
                 if let repeatAction { startRepeating(repeatAction) }
             }
@@ -223,6 +226,23 @@ struct KeyCap<Label: View, S: InsettableShape>: View {
             .foregroundStyle(enabled ? Theme.label : Theme.secondary.opacity(0.5))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(KeySurface(shape: shape, pressed: pressed, tint: tint))
+            .overlay(alignment: characterPreviewAlignment ?? .top) {
+                if pressed, let pressedCharacter, characterPreviewAlignment != nil {
+                    Text(pressedCharacter)
+                        .font(.system(size: 29, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.label)
+                        .frame(width: 54, height: 44)
+                        .background {
+                            let shape = RoundedRectangle(cornerRadius: 12)
+                            shape.fill(Theme.keyTop)
+                                .overlay(shape.strokeBorder(Theme.accent.opacity(0.55), lineWidth: 1))
+                                .shadow(color: .black.opacity(0.65), radius: 5, y: 3)
+                        }
+                        .offset(y: -42)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .contentShape(shape)
             .scaleEffect(pressed ? 0.955 : 1)
             .animation(.spring(response: 0.18, dampingFraction: 0.65), value: pressed)
