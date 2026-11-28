@@ -3,6 +3,7 @@ import SwiftUI
 /// The second page: things to watch. Pinned Jellyfin items, app shortcuts, and Jellyfin rows.
 struct WatchScreen: View {
     @Environment(AppModel.self) private var model
+    var openApps: (() -> Void)?
 
     var body: some View {
         let jellyfin = model.jellyfin
@@ -46,7 +47,10 @@ struct WatchScreen: View {
                     ForEach(model.watchApps, id: \.app.id) { entry in
                         AppTile(app: entry.app, style: entry.style, height: 56) { model.launch(entry.app) }
                     }
-                    Button { model.showingApps = true } label: {
+                    Button {
+                        if let openApps { openApps() }
+                        else { model.showingApps = true }
+                    } label: {
                         VStack(spacing: 2) {
                             Image(systemName: "square.grid.2x2.fill").font(.system(size: 16, weight: .semibold))
                             Text("All apps").font(.system(size: 11, weight: .semibold, design: .rounded))

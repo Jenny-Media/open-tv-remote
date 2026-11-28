@@ -162,10 +162,6 @@ final class JoystickUITests: XCTestCase {
         devices.buttons["Done"].tap()
         volume.tap()
         XCTAssertEqual(log.label, "1:Volume up")
-        XCTAssertFalse(app.navigationBars["Apps"].exists)
-        app.buttons["TV Apps"].tap()
-        XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 5))
-        app.navigationBars["Apps"].buttons["Done"].tap()
 
         app.terminate()
         launch()
@@ -174,6 +170,75 @@ final class JoystickUITests: XCTestCase {
         XCTAssertEqual(stick.frame.midX < app.buttons["Volume up"].frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(stick.frame.midX < tv.frame.midX, !remoteStartedOnLeft)
         XCTAssertEqual(log.label, "0:None")
+    }
+
+    func testBookWatchAndAppsStayOppositeActiveRemote() throws {
+        try requireDuoPosture("book")
+        launch()
+        let swap = app.buttons["bookSwapSides"]
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        let initialRemoteIsOnLeft = stick.frame.midX < swap.frame.midX
+        let remote = app.buttons["Remote"]
+        let watch = app.buttons["Watch"]
+        let watchTitle = app.staticTexts["Watch"].firstMatch
+        let allApps = app.buttons["All apps"]
+        let appsTitle = app.staticTexts["Apps"]
+        let youtube = app.buttons["Open YouTube"]
+
+        defer {
+            if swap.isHittable && (stick.frame.midX < swap.frame.midX) != initialRemoteIsOnLeft { swap.tap() }
+        }
+        for remoteIsOnLeft in [initialRemoteIsOnLeft, !initialRemoteIsOnLeft] {
+            let remoteFrame = stick.frame
+            func assertInCompanion(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+                XCTAssertTrue(element.isHittable, file: file, line: line)
+                if remoteIsOnLeft {
+                    XCTAssertGreaterThan(element.frame.minX, remoteFrame.maxX, file: file, line: line)
+                } else {
+                    XCTAssertLessThan(element.frame.maxX, remoteFrame.minX, file: file, line: line)
+                }
+            }
+
+            assertInCompanion(remote)
+            assertInCompanion(watch)
+            let switcherFrame = remote.frame.union(watch.frame)
+            XCTAssertFalse(allApps.exists)
+            watch.tap()
+            XCTAssertTrue(allApps.waitForExistence(timeout: 5))
+            assertInCompanion(watchTitle)
+            assertInCompanion(allApps)
+            assertInCompanion(remote)
+            assertInCompanion(watch)
+            XCTAssertEqual(remote.frame.union(watch.frame), switcherFrame)
+            XCTAssertEqual(stick.frame, remoteFrame)
+            XCTAssertFalse(swap.exists)
+            let beforeTap = count
+            stick.tap()
+            XCTAssertEqual(log.label, "\(beforeTap + 1):OK")
+            captureKeyboard("Book Watch on the \(remoteIsOnLeft ? "right" : "left")")
+
+            allApps.tap()
+            XCTAssertTrue(appsTitle.waitForExistence(timeout: 5))
+            assertInCompanion(youtube)
+            XCTAssertEqual(stick.frame, remoteFrame)
+            stick.tap()
+            XCTAssertEqual(log.label, "\(beforeTap + 2):OK")
+            captureKeyboard("Book TV Apps on the \(remoteIsOnLeft ? "right" : "left")")
+            app.buttons["Done"].tap()
+            XCTAssertTrue(allApps.waitForExistence(timeout: 5))
+            remote.tap()
+            XCTAssertTrue(swap.waitForExistence(timeout: 5))
+
+            app.buttons["TV Apps"].tap()
+            XCTAssertTrue(appsTitle.waitForExistence(timeout: 5))
+            assertInCompanion(youtube)
+            XCTAssertEqual(stick.frame, remoteFrame)
+            XCTAssertFalse(app.navigationBars["Apps"].exists)
+            youtube.tap()
+            XCTAssertTrue(swap.waitForExistence(timeout: 5))
+            swap.tap()
+        }
+        XCTAssertEqual(stick.frame.midX < swap.frame.midX, initialRemoteIsOnLeft)
     }
 
     func testIPadLandscapeControlsSwapAndKeepTVAppsOnDemand() throws {
@@ -379,6 +444,23 @@ final class JoystickUITests: XCTestCase {
         assertPhoneKeyboardFitsPortraitAndLandscape(deviceName: "iPhone")
     }
 
+    func testNarrowIPhonePortraitKeyboardKeepsClearBelowTheDPad() throws {
+        try requireStandardIPhone()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .portrait
+        launch(openMode: false, logInput: false, additionalArguments: ["-padMode", "keyboard", "-demoKeyboardWidth", "310"])
+
+        XCTAssertTrue(app.buttons["Space"].waitForExistence(timeout: 5))
+        assertKeyboardEditingKeys()
+        assertKeyboardAbovePageSwitcher()
+        assertClearBelowDPad()
+        let keys = app.buttons["q"].frame.union(app.buttons["p"].frame)
+        XCTAssertEqual(app.buttons["OK"].frame.midX, keys.midX, accuracy: 1)
+        XCTAssertEqual(keys.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
+    }
+
     private func requireStandardIPhone() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Requires an iPhone simulator.")
         let environment = ProcessInfo.processInfo.environment
@@ -438,13 +520,12 @@ final class JoystickUITests: XCTestCase {
             if orientation.isPortrait {
                 let keyRow = app.buttons["q"].frame.union(app.buttons["p"].frame)
                 XCTAssertEqual(ok.frame.midX, keyRow.midX, accuracy: 1)
-                if folded {
-                    let clear = app.buttons["Clear"]
-                    XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
-                    XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
-                } else {
-                    assertClearBelowDPad()
-                    XCTAssertEqual(keyRow.minY - app.buttons["Clear"].frame.maxY, 22, accuracy: 1)
+                let clear = app.buttons["Clear"]
+                XCTAssertGreaterThan(clear.frame.minX, ok.frame.maxX)
+                XCTAssertEqual(clear.frame.midY, ok.frame.midY, accuracy: 1)
+                if !folded {
+                    XCTAssertEqual(ok.frame.width, 176 * 0.40, accuracy: 1)
+                    XCTAssertGreaterThanOrEqual(clear.frame.minX - ok.frame.midX, 176 / 2 + 11)
                 }
             } else {
                 assertClearBelowDPad()
@@ -780,7 +861,14 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(swap.waitForExistence(timeout: 5))
         XCTAssertTrue(space.waitForExistence(timeout: 5))
         assertKeyboardEditingKeys()
-        assertKeyboardAbovePageSwitcher()
+        let watch = app.buttons["Watch"]
+        XCTAssertEqual(watch.frame.midX > space.frame.midX, swap.frame.midX > space.frame.midX)
+        watch.tap()
+        XCTAssertTrue(app.buttons["All apps"].waitForExistence(timeout: 5))
+        assertKeyboardEditingKeys()
+        app.buttons["q"].tap()
+        app.buttons["Remote"].tap()
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
         captureKeyboard("iPhone Duo Book keyboard")
 
         let keyboardWasOnLeft = space.frame.midX < swap.frame.midX

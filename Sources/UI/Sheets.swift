@@ -280,13 +280,32 @@ struct AppsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .task { await model.refreshApps() }
         }
         #if os(macOS)
         .frame(minWidth: 360, idealWidth: 380, maxWidth: 400, minHeight: 480)
         #endif
     }
 }
+
+#if os(iOS)
+struct BookAppsPane: View {
+    var onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Apps").font(.system(size: 28, weight: .bold, design: .rounded))
+                Spacer()
+                Button("Done", action: onClose)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            TVAppGrid(onLaunch: onClose)
+        }
+    }
+}
+#endif
 
 private struct TVAppGrid: View {
     @Environment(AppModel.self) private var model
@@ -326,5 +345,6 @@ private struct TVAppGrid: View {
             }
         }
         .onChange(of: model.currentID) { _, _ in launchRejected = false }
+        .task { await model.refreshApps() }
     }
 }

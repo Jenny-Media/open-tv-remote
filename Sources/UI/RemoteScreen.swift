@@ -1,9 +1,36 @@
 import SwiftUI
 
+enum BookCompanionPage {
+    case remote
+    case watch
+    case apps(returnToWatch: Bool)
+
+    mutating func showApps() {
+        switch self {
+        case .remote: self = .apps(returnToWatch: false)
+        case .watch: self = .apps(returnToWatch: true)
+        case .apps: break
+        }
+    }
+}
+
+#if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
+@available(iOS 27.1, *)
+extension GeometryProxy {
+    func duoWindowLayout(bookRemoteOnRight: Bool = false) -> RemoteWindowLayout {
+        RemoteWindowLayout(size: size,
+                           division: reservedRegions(kind: .division).first?.frame,
+                           occlusions: reservedRegions(kind: .occlusion).map(\.frame),
+                           bookRemoteOnRight: bookRemoteOnRight)
+    }
+}
+#endif
+
 struct RemoteScreen: View {
     @Environment(AppModel.self) private var model
     var usesSystemToolbar = false
     var pageIsActive: () -> Bool = { true }
+    var bookPage: Binding<BookCompanionPage> = .constant(.remote)
     private var mode: PadMode {
         switch model.remoteControlMode {
         case .keyboard: .keyboard
@@ -114,7 +141,8 @@ struct RemoteScreen: View {
                         if tabletop {
                             tabletopCompanion(groupsSideBySide: companion.width >= 430, keyboard: tabletopTyping)
                         } else {
-                            bookControls
+                            bookCompanion
+                                .clipped()
                         }
                     }
                     .id([companion.minX, companion.minY, companion.width, companion.height])
@@ -142,13 +170,29 @@ struct RemoteScreen: View {
         // Xcode 27.0 has Swift 6.4, but reserved regions arrived in iOS 27.1.
         #if compiler(>=6.4) && !IPHONE_SDK_27_0
         if #available(iOS 27.1, *) {
-            return RemoteWindowLayout(size: geometry.size,
-                                      division: geometry.reservedRegions(kind: .division).first?.frame,
-                                      occlusions: geometry.reservedRegions(kind: .occlusion).map(\.frame),
-                                      bookRemoteOnRight: bookRemoteOnRight)
+            return geometry.duoWindowLayout(bookRemoteOnRight: bookRemoteOnRight)
         }
         #endif
         return RemoteWindowLayout(size: geometry.size, division: nil)
+    }
+
+    private var bookCompanion: some View {
+        VStack(spacing: 0) {
+            switch bookPage.wrappedValue {
+            case .remote:
+                bookControls
+            case .watch:
+                WatchScreen(openApps: { bookPage.wrappedValue.showApps() })
+            case let .apps(returnToWatch):
+                BookAppsPane { bookPage.wrappedValue = returnToWatch ? .watch : .remote }
+            }
+            PageSwitcher(page: Binding {
+                if case .remote = bookPage.wrappedValue { return 0 }
+                return 1
+            } set: { page in
+                bookPage.wrappedValue = page == 0 ? .remote : .watch
+            })
+        }
     }
 
     private var bookControls: some View {
@@ -156,9 +200,11 @@ struct RemoteScreen: View {
             VStack(spacing: 16) {
                 remoteHeader(showTV: true, showsShortcuts: false)
                 if !usesSystemToolbar {
+                    let openApps = { bookPage.wrappedValue.showApps() }
                     ViewThatFits(in: .horizontal) {
-                        TopBar(showsTVSelection: false).fixedSize(horizontal: true, vertical: false)
-                        TopBar(showsTVSelection: false, vertical: true)
+                        TopBar(showsTVSelection: false, openApps: openApps)
+                            .fixedSize(horizontal: true, vertical: false)
+                        TopBar(showsTVSelection: false, vertical: true, openApps: openApps)
                     }
                 }
                 DuoQuickControls(showsInput: true)
@@ -257,12 +303,12 @@ struct RemoteScreen: View {
             .frame(maxHeight: 460)
         case .eyesFree:
             JoystickScreen(compactHeight: true, navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
-                           swapSides: showsMedia ? nil : { tabletRemoteOnRight.toggle() })
+                           swapSides: showsMedia ? nil : { tabletRemoteOnRight.toggle() }, pageIsActive: pageIsActive)
             .frame(maxHeight: 680)
         case .cursor:
             CursorScreen(wide: true, surfaceOnly: true, scrollStripOnLeading: tabletPadOnLeading,
                          navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
-                         swapSides: { tabletRemoteOnRight.toggle() })
+                         swapSides: { tabletRemoteOnRight.toggle() }, pageIsActive: pageIsActive)
             .frame(maxHeight: 680)
         }
     }
@@ -501,14 +547,15 @@ struct RemoteScreen: View {
             case .standard, .keyboard, .keypad:
                 standardMode(compactHeight: compactHeight, tabletop: tabletop, book: book, wide: wide, tablet: tablet)
             case .eyesFree:
-                JoystickScreen(compactHeight: compactHeight)
+                JoystickScreen(compactHeight: compactHeight, pageIsActive: pageIsActive)
             case .cursor:
                 #if os(iOS)
                 CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop, tabletop: tabletop,
                              scrollStripOnLeading: tabletLandscape && tabletPadOnLeading,
-                             swapSides: tabletLandscape ? { tabletRemoteOnRight.toggle() } : nil)
+                             swapSides: tabletLandscape ? { tabletRemoteOnRight.toggle() } : nil,
+                             pageIsActive: pageIsActive)
                 #else
-                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop)
+                CursorScreen(compactHeight: compactHeight, wide: wide, surfaceOnly: tabletop, pageIsActive: pageIsActive)
                 #endif
             }
         }
@@ -947,6 +994,7 @@ private struct TopBar: View {
     @Environment(AppModel.self) private var model
     var showsTVSelection = true
     var vertical = false
+    var openApps: (() -> Void)?
 
     var body: some View {
         let layout = vertical ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
@@ -969,7 +1017,8 @@ private struct TopBar: View {
             #if os(iOS)
             if model.current != nil {
                 KeyCap(shape: Circle(), accessibilityLabel: "TV Apps") {
-                    model.showingApps = true
+                    if let openApps { openApps() }
+                    else { model.showingApps = true }
                 } label: {
                     Image(systemName: "square.grid.2x2.fill").font(.system(size: 16, weight: .semibold))
                 }

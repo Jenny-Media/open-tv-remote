@@ -159,7 +159,10 @@ private struct DuoPager: View {
     @Environment(\.toolbarVerticalEdge) private var toolbarEdge
 
     var body: some View {
-        Pager(usesSystemToolbar: toolbarEdge != nil)
+        GeometryReader { geometry in
+            Pager(usesSystemToolbar: toolbarEdge != nil,
+                  isBook: geometry.duoWindowLayout().arrangement == .book)
+        }
     }
 }
 #endif
@@ -169,23 +172,25 @@ private struct Pager: View {
     @Environment(AppModel.self) private var model
     @AppStorage("page") private var stored = 0
     @State private var page: Int? = 0
+    @State private var bookPage = BookCompanionPage.remote
     #if os(iOS)
     @State private var showsPaneControls = false
     #endif
     var usesSystemToolbar = false
+    var isBook = false
 
-    private var showsRemoteToolbar: Bool { usesSystemToolbar && (page ?? 0) == 0 }
+    private var remoteIsActive: Bool { isBook || (page ?? 0) == 0 }
 
     var body: some View {
         Group {
-            if model.remoteControlMode.isGestureMode && (page ?? 0) == 0 {
-                RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { (page ?? 0) == 0 })
+            if model.remoteControlMode.isGestureMode && remoteIsActive {
+                remote
             } else {
                 pages
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !model.remoteControlMode.isGestureMode || (page ?? 0) != 0 {
+            if !isBook && (!model.remoteControlMode.isGestureMode || !remoteIsActive) {
                 PageSwitcher(page: Binding { page ?? 0 } set: { new in withAnimation(.snappy) { page = new } })
             }
         }
@@ -193,26 +198,44 @@ private struct Pager: View {
         .onAppear { page = stored }
         .onChange(of: page) { _, new in if let new { stored = new } }
         .onChange(of: stored) { _, new in if page != new { page = new } }
+        .onChange(of: isBook, initial: true) { _, book in
+            if book { bookPage = stored == 1 ? .watch : .remote }
+        }
         #if os(iOS) && compiler(>=6.4) && !IPHONE_SDK_27_0
         .onPreferenceChange(RemotePaneControlsKey.self) { showsPaneControls = $0 }
-        .modifier(DuoRemoteToolbar(isVisible: showsRemoteToolbar, showsVolume: !showsPaneControls))
+        .modifier(DuoRemoteToolbar(isVisible: usesSystemToolbar && remoteIsActive, showsVolume: !showsPaneControls,
+                                  openApps: {
+                                      if isBook { bookPage.showApps() }
+                                      else { model.showingApps = true }
+                                  }))
         #endif
+    }
+
+    private var remote: some View {
+        RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { remoteIsActive }, bookPage: $bookPage)
     }
 
     private var pages: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
-                RemoteScreen(usesSystemToolbar: usesSystemToolbar, pageIsActive: { (page ?? 0) == 0 })
+                remote
                     .containerRelativeFrame(.horizontal)
                     .id(0)
-                WatchScreen()
-                    .containerRelativeFrame(.horizontal)
-                    .id(1)
+                if !isBook {
+                    WatchScreen()
+                        .containerRelativeFrame(.horizontal)
+                        .id(1)
+                }
             }
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $page)
+        // Book has a single window-wide page. Its Watch content lives inside the remote layout.
+        .scrollPosition(id: Binding {
+            isBook ? 0 : page
+        } set: { new in
+            if !isBook { page = new }
+        })
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
         // Keep Watch inside the pager without replacing the Remote screen when the Duo's toolbar moves.
@@ -226,6 +249,7 @@ private struct DuoRemoteToolbar: ViewModifier {
     @Environment(AppModel.self) private var model
     let isVisible: Bool
     let showsVolume: Bool
+    let openApps: () -> Void
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -262,7 +286,7 @@ private struct DuoRemoteToolbar: ViewModifier {
 
         if model.current != nil {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("TV Apps", systemImage: "square.grid.2x2.fill") { model.showingApps = true }
+                Button("TV Apps", systemImage: "square.grid.2x2.fill", action: openApps)
             }
             .visibilityPriority(.low)
         }
