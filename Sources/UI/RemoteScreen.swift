@@ -337,9 +337,14 @@ struct RemoteScreen: View {
             if model.current != nil {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 24) {
+                        DuoQuickControls()
+                            .frame(width: 166)
+                            .environment(\.layoutDirection, layoutDirection)
                         tabletopDirectionPad
-                        DuoQuickControls().frame(width: 166)
+                            .environment(\.layoutDirection, layoutDirection)
                     }
+                    // Keep the D-pad on the physical right in every language.
+                    .environment(\.layoutDirection, .leftToRight)
                     VStack(spacing: 12) {
                         DuoQuickControls()
                         tabletopDirectionPad

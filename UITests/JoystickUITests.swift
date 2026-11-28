@@ -815,13 +815,8 @@ final class JoystickUITests: XCTestCase {
         XCTAssertLessThan(app.buttons["Clear"].frame.maxY, letterRow.minY)
         XCTAssertLessThan(app.buttons["Home"].frame.maxY, letterRow.minY)
         XCTAssertFalse(app.buttons["tabletopKeyboardSheet"].exists)
-        let volume = app.buttons["Volume down"]
-        let play = app.buttons["Play or pause"]
-        XCTAssertTrue(volume.isHittable)
-        XCTAssertTrue(play.isHittable)
-        XCTAssertLessThan(app.buttons["Right"].frame.maxX, volume.frame.minX)
-        XCTAssertLessThan(volume.frame.maxY, play.frame.minY)
-        XCTAssertLessThan(play.frame.maxY, letterRow.minY)
+        assertTabletopDirectionPadOnRight()
+        XCTAssertLessThan(app.buttons["Play or pause"].frame.maxY, letterRow.minY)
         captureKeyboard("iPhone Duo Tabletop keyboard")
     }
 
@@ -843,6 +838,7 @@ final class JoystickUITests: XCTestCase {
             XCTAssertLessThan(control.frame.maxY, typing.frame.minY)
         }
         XCTAssertLessThan(typing.frame.maxY, app.buttons["Watch"].frame.minY)
+        assertTabletopDirectionPadOnRight()
         captureKeyboard("Short Tabletop typing action")
 
         typing.tap()
@@ -856,6 +852,16 @@ final class JoystickUITests: XCTestCase {
         app.buttons["Send text"].tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5))
         XCTAssertTrue(typing.isHittable)
+    }
+
+    private func assertTabletopDirectionPadOnRight() {
+        let volume = app.buttons["Volume up"]
+        let play = app.buttons["Play or pause"]
+        XCTAssertTrue(volume.isHittable)
+        XCTAssertTrue(play.isHittable)
+        XCTAssertLessThan(volume.frame.maxX, app.buttons["Left"].frame.minX)
+        XCTAssertLessThan(volume.frame.maxY, play.frame.minY)
+        assertClearBelowDPad()
     }
 
     func testTabletopLGCursorLeavesRoomForTheTouchpad() throws {
