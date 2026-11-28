@@ -539,6 +539,45 @@ final class JoystickUITests: XCTestCase {
         XCTAssertTrue(touchpad.isHittable)
     }
 
+    func testIPadLandscapeCursorCanSwapSidesWithMediaUnpinned() throws {
+        try requireIPad()
+        let device = XCUIDevice.shared
+        let original = device.orientation
+        defer { device.orientation = original.isValidInterfaceOrientation ? original : .portrait }
+        device.orientation = .landscapeRight
+        let arguments = ["-demoLGCursor", "YES", "-padMode", "cursor", "-ipad.mediaControlsPinned", "NO"]
+        launch(openMode: false, logInput: false, additionalArguments: arguments)
+
+        let settings = app.buttons["lgCursorSettings"]
+        let touchpad = app.descendants(matching: .any).matching(identifier: "lgCursorTouchpad").firstMatch
+        let strip = app.descendants(matching: .any).matching(identifier: "Scroll strip").firstMatch
+        let swap = app.buttons["ipadCursorSwapSides"]
+        let sheet = app.navigationBars["Cursor Settings"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Media Controls"].isHittable)
+        XCTAssertFalse(app.staticTexts["ipadPinnedMedia"].exists)
+        let stripStartedOnLeft = strip.frame.midX < touchpad.frame.midX
+        defer {
+            if strip.isHittable && (strip.frame.midX < touchpad.frame.midX) != stripStartedOnLeft {
+                settings.tap()
+                if swap.waitForExistence(timeout: 5) { swap.tap() }
+            }
+        }
+
+        settings.tap()
+        XCTAssertTrue(swap.waitForExistence(timeout: 5))
+        swap.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(strip.isHittable)
+        XCTAssertEqual(strip.frame.midX < touchpad.frame.midX, !stripStartedOnLeft)
+
+        app.terminate()
+        launch(openMode: false, logInput: false, additionalArguments: arguments)
+        XCTAssertTrue(strip.waitForExistence(timeout: 5))
+        XCTAssertEqual(strip.frame.midX < touchpad.frame.midX, !stripStartedOnLeft)
+        XCTAssertFalse(app.staticTexts["ipadPinnedMedia"].exists)
+    }
+
     private func requireIPad() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Requires an iPad simulator.")
     }

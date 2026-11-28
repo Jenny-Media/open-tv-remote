@@ -12,13 +12,14 @@ struct CursorScreen: View {
     var surfaceOnly = false
     var scrollStripOnLeading = false
     var navigationAlignment: Alignment?
+    var swapSides: (() -> Void)?
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
                        surfaceOnly: surfaceOnly, scrollStripOnLeading: scrollStripOnLeading,
-                       navigationAlignment: navigationAlignment,
+                       navigationAlignment: navigationAlignment, swapSides: swapSides,
                        mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                        modes: model.availableRemoteModes) { command, request in
             guard page == 0 else { return false }
@@ -52,6 +53,7 @@ private struct CursorControls: View {
     let surfaceOnly: Bool
     let scrollStripOnLeading: Bool
     let navigationAlignment: Alignment?
+    let swapSides: (() -> Void)?
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
@@ -59,7 +61,7 @@ private struct CursorControls: View {
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
          wide: Bool = false, surfaceOnly: Bool = false, scrollStripOnLeading: Bool = false,
-         navigationAlignment: Alignment? = nil,
+         navigationAlignment: Alignment? = nil, swapSides: (() -> Void)? = nil,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
@@ -70,6 +72,7 @@ private struct CursorControls: View {
         self.surfaceOnly = surfaceOnly
         self.scrollStripOnLeading = scrollStripOnLeading
         self.navigationAlignment = navigationAlignment
+        self.swapSides = swapSides
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -125,6 +128,16 @@ private struct CursorControls: View {
                 Form {
                     Section { preferences } footer: {
                         if surfaceOnly { Text(scrollHint) }
+                    }
+                    if let swapSides {
+                        Section {
+                            Button("Swap Sides", systemImage: "arrow.left.arrow.right") {
+                                Haptics.tap()
+                                showingCursorSettings = false
+                                swapSides()
+                            }
+                            .accessibilityIdentifier("ipadCursorSwapSides")
+                        }
                     }
                 }
                 .formStyle(.grouped)

@@ -237,8 +237,9 @@ struct RemoteScreen: View {
                 .frame(maxHeight: 680)
         case .cursor:
             CursorScreen(wide: true, surfaceOnly: true, scrollStripOnLeading: tabletPadOnLeading,
-                         navigationAlignment: tabletPadOnLeading ? .leading : .trailing)
-                .frame(maxHeight: 680)
+                         navigationAlignment: tabletPadOnLeading ? .leading : .trailing,
+                         swapSides: { tabletRemoteOnRight.toggle() })
+            .frame(maxHeight: 680)
         }
     }
 
