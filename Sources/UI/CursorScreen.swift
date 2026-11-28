@@ -10,12 +10,15 @@ struct CursorScreen: View {
     var compactHeight = false
     var wide = false
     var surfaceOnly = false
+    var scrollStripOnLeading = false
+    var navigationAlignment: Alignment?
 
     var body: some View {
         CursorControls(tvName: model.current?.name ?? "No TV selected",
                        enabled: model.supportsCursor && model.remoteInputAvailable && page == 0,
                        sessionID: model.currentID, compactHeight: compactHeight, wide: wide,
-                       surfaceOnly: surfaceOnly,
+                       surfaceOnly: surfaceOnly, scrollStripOnLeading: scrollStripOnLeading,
+                       navigationAlignment: navigationAlignment,
                        mode: Binding(get: { model.remoteControlMode }, set: model.selectRemoteMode),
                        modes: model.availableRemoteModes) { command, request in
             guard page == 0 else { return false }
@@ -47,13 +50,16 @@ private struct CursorControls: View {
     let compactHeight: Bool
     let wide: Bool
     let surfaceOnly: Bool
+    let scrollStripOnLeading: Bool
+    let navigationAlignment: Alignment?
     @Binding var mode: RemoteControlMode
     let modes: [RemoteControlMode]
 
     private var inputEnabled: Bool { enabled && scenePhase == .active && !showingCursorSettings }
 
     init(tvName: String, enabled: Bool, sessionID: String?, compactHeight: Bool = false,
-         wide: Bool = false, surfaceOnly: Bool = false,
+         wide: Bool = false, surfaceOnly: Bool = false, scrollStripOnLeading: Bool = false,
+         navigationAlignment: Alignment? = nil,
          mode: Binding<RemoteControlMode> = .constant(.cursor), modes: [RemoteControlMode] = RemoteControlMode.allCases,
          send: @escaping (CursorCommand, RemoteInputRequest) async -> Bool) {
         self.tvName = tvName
@@ -62,6 +68,8 @@ private struct CursorControls: View {
         self.compactHeight = compactHeight
         self.wide = wide
         self.surfaceOnly = surfaceOnly
+        self.scrollStripOnLeading = scrollStripOnLeading
+        self.navigationAlignment = navigationAlignment
         self._mode = mode
         self.modes = modes
         _sender = State(initialValue: CursorSender(send: send,
@@ -70,12 +78,14 @@ private struct CursorControls: View {
     }
 
     var body: some View {
-        RemoteModeLayout {
+        RemoteModeLayout(spacing: navigationAlignment == nil ? 12 : 16) {
             HStack(spacing: 8) {
                 RemoteNavigationRow(selection: $mode, modes: modes, enabled: enabled,
                                     back: { press(.back) }, home: { press(.home) })
                 if surfaceOnly { cursorSettingsButton }
             }
+            .frame(maxWidth: navigationAlignment == nil ? .infinity : 440)
+            .frame(maxWidth: .infinity, alignment: navigationAlignment ?? .center)
         } controls: {
             if surfaceOnly {
                 controlSurface
@@ -160,15 +170,19 @@ private struct CursorControls: View {
 
     private var controlSurface: some View {
         HStack(spacing: 12) {
+            if scrollStripOnLeading { scrollStrip }
             touchpad
-            CursorScrollStrip(enabled: inputEnabled,
-                              activity: sender.scrollActivity,
-                              scroll: { scroll(0, $0) }, release: { sender.release() })
-                .frame(width: dynamicTypeSize.isAccessibilitySize ? 140 : 56)
-                .id(sessionID)
+            if !scrollStripOnLeading { scrollStrip }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: compactHeight ? 108 : dynamicTypeSize.isAccessibilitySize ? 220 : 180)
+    }
+
+    private var scrollStrip: some View {
+        CursorScrollStrip(enabled: inputEnabled, activity: sender.scrollActivity,
+                          scroll: { scroll(0, $0) }, release: { sender.release() })
+            .frame(width: dynamicTypeSize.isAccessibilitySize ? 140 : 56)
+            .id(sessionID)
     }
 
     private var cursorSettingsButton: some View {

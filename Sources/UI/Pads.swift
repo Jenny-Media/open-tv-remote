@@ -100,34 +100,59 @@ struct DPadView: View {
 // MARK: - Keyboard
 
 struct KeyboardPadView: View {
+    enum PhoneLayout: Equatable {
+        case adaptive, portrait, foldedPortrait, wideLandscape
+    }
+
+    enum Layout {
+        case stacked
+        case phone(PhoneLayout)
+        case stackedTablet(controlsSpacing: CGFloat)
+        case tabletKeys
+    }
+
+    private static let defaultKeyGap: CGFloat = 6
+    private static let maximumKeyHeight: CGFloat = 64
+    static let minimumTabletKeyGridWidth: CGFloat = 10 * 44 + 9 * defaultKeyGap
+
+    private enum Layer { case letters, numbers, symbols }
+
     @Environment(\.adaptiveKeyboardLayout) private var adaptiveKeyboardLayout
     @Environment(AppModel.self) private var model
     @State private var shifted = false
-    @State private var symbols = false
+    @State private var layer: Layer = .letters
+    var layout: Layout = .stacked
 
-    // The last row of each layer sits between shift (or a spacer) and delete.
-    private static let letters = [
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-    ] + ["qwertyuiop", "asdfghjkl", "zxcvbnm"].map { $0.map(String.init) }
-    private static let others = [
+    private static let digits = "1234567890".map(String.init)
+    private static let letters = ["qwertyuiop", "asdfghjkl", "zxcvbnm"].map { $0.map(String.init) }
+    private static let legacySymbols = [
         ["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""],
         ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="],
         ["_", "\\", "|", "~", "<", ">", "€", "£", "•"],
         [".", ",", "?", "!", "'", "`", "¥"],
     ]
-    private let gap: CGFloat = 6
+    private static let punctuation = [".", ",", "?", "!", "'"]
+    private static let numbers = [digits, legacySymbols[0], punctuation]
+    private static let symbols = [legacySymbols[1], legacySymbols[2] + ["¥"], punctuation + ["`"]]
+    private let gap = KeyboardPadView.defaultKeyGap
 
     var body: some View {
-        VStack(spacing: 10) {
-            controls
-            GeometryReader { geo in
-                let rows = symbols ? Self.others : Self.letters
-                let keyWidth = (geo.size.width - gap * 9) / 10
-                if adaptiveKeyboardLayout && keyWidth < 24 {
-                    narrowKeys(rows)
-                } else {
-                    fullKeys(rows, width: keyWidth)
+        Group {
+            switch layout {
+            case .stacked:
+                VStack(spacing: 10) {
+                    controls
+                    keyGrid(tablet: false, inlineEditing: false)
                 }
+            case .phone(let posture):
+                phoneKeyboard(posture)
+            case .stackedTablet(let controlsSpacing):
+                VStack(spacing: controlsSpacing) {
+                    TabletKeyboardNavigation()
+                    keyGrid(tablet: true)
+                }
+            case .tabletKeys:
+                keyGrid(tablet: true)
             }
         }
         #if DEBUG
@@ -135,56 +160,147 @@ struct KeyboardPadView: View {
         #endif
     }
 
-    private func fullKeys(_ rows: [[String]], width: CGFloat) -> some View {
-        // Shift and Delete fill the space left by the shorter letter row.
+    private func phoneKeyboard(_ posture: PhoneLayout) -> some View {
+        GeometryReader { viewport in
+            if posture == .adaptive && viewport.size.width >= 480 && viewport.size.height < 360 {
+                let padSize = min(108, max(64, viewport.size.height - 56))
+                HStack(spacing: 12) {
+                    VStack(spacing: 8) {
+                        DPadView().frame(width: padSize, height: padSize)
+                        phoneClearButton
+                    }
+                    keyGrid(tablet: false)
+                }
+            } else {
+                let width = viewport.size.width
+                let padSize = min(132, max(60, width - 72))
+                let isPortrait = posture == .portrait
+                VStack(spacing: isPortrait ? 22 : 10) {
+                    phoneKeyboardNavigation(posture, padSize: padSize)
+                    keyGrid(tablet: false)
+                        .frame(maxHeight: isPortrait ? 4 * Self.maximumKeyHeight + 3 * gap : .infinity)
+                }
+                .frame(maxHeight: .infinity)
+            }
+        }
+        .clipped()
+    }
+
+    @ViewBuilder private func phoneKeyboardNavigation(_ posture: PhoneLayout, padSize: CGFloat) -> some View {
+        let pad = DPadView().frame(width: padSize, height: padSize)
+        switch posture {
+        case .portrait:
+            VStack(spacing: 10) {
+                pad
+                phoneClearButton
+            }
+        case .foldedPortrait:
+            ViewThatFits(in: .horizontal) {
+                pad.padding(.horizontal, 72)
+                    .overlay(alignment: .trailing) { phoneClearButton }
+                VStack(spacing: 10) {
+                    pad
+                    phoneClearButton
+                }
+            }
+        case .adaptive, .wideLandscape:
+            HStack(spacing: 12) {
+                pad
+                phoneClearButton
+            }
+        }
+    }
+
+    private var phoneClearButton: some View {
+        KeyboardClearButton().frame(width: 60, height: 48)
+    }
+
+    private func rows(numberRow: Bool, inlineEditing: Bool = true) -> [[String]] {
+        switch layer {
+        case .letters: numberRow ? [Self.digits] + Self.letters : Self.letters
+        case .numbers: inlineEditing ? Self.numbers : Self.legacySymbols
+        case .symbols: Self.symbols
+        }
+    }
+
+    private func keyGrid(tablet: Bool, inlineEditing: Bool = true) -> some View {
+        GeometryReader { geo in
+            let showsNumberRow = !inlineEditing || (tablet && geo.size.width >= Self.minimumTabletKeyGridWidth)
+            let rows = self.rows(numberRow: showsNumberRow, inlineEditing: inlineEditing)
+            // Use any extra width for spacing once all ten letter keys have 44-point targets.
+            let extraWidth = max(0, geo.size.width - Self.minimumTabletKeyGridWidth)
+            let keyGap = tablet ? min(9, gap + extraWidth / 9) : gap
+            let keyWidth = (geo.size.width - keyGap * 9) / 10
+            if inlineEditing && adaptiveKeyboardLayout && keyWidth < (tablet ? 28 : 24) {
+                narrowKeys(rows)
+            } else {
+                fullKeys(rows, width: keyWidth, gap: keyGap, inlineEditing: inlineEditing)
+            }
+        }
+    }
+
+    private func fullKeys(_ rows: [[String]], width: CGFloat, gap: CGFloat, inlineEditing: Bool) -> some View {
         let wide = width * 1.5 + gap / 2
+        let editingWidth = inlineEditing ? max(44, wide) : wide
         return VStack(spacing: gap) {
-            ForEach(0..<3) { i in
+            ForEach(0..<(rows.count - 1), id: \.self) { i in
                 HStack(spacing: gap) { characters(rows[i], width: width) }
             }
             HStack(spacing: gap) {
-                if symbols { Color.clear.frame(width: wide) }
-                else { shiftButton.frame(width: wide) }
-                characters(rows[3], width: width)
-                deleteButton.frame(width: wide)
+                layerModifier(inlineEditing: inlineEditing).frame(width: editingWidth)
+                let lastRow = rows[rows.count - 1]
+                let innerWidth = (10 * width + 9 * gap - 2 * editingWidth - 2 * gap - CGFloat(lastRow.count - 1) * gap)
+                    / CGFloat(lastRow.count)
+                HStack(spacing: gap) {
+                    characters(lastRow, width: min(width, innerWidth))
+                }
+                .frame(maxWidth: .infinity)
+                deleteButton.frame(width: editingWidth)
             }
             HStack(spacing: gap) {
-                symbolsButton.frame(width: wide)
+                symbolsButton.frame(width: editingWidth)
                 spaceButton
+                if inlineEditing { returnButton.frame(width: editingWidth) }
             }
         }
-        .frame(maxHeight: 5 * 64 + 4 * gap)
+        .frame(maxHeight: CGFloat(rows.count + 1) * Self.maximumKeyHeight + CGFloat(rows.count) * gap)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func narrowKeys(_ rows: [[String]]) -> some View {
-        let keys = symbols ? rows.flatMap { $0 } : rows.dropFirst().flatMap { $0 } + rows[0]
-        let columns = [GridItem(.adaptive(minimum: 44), spacing: gap)]
-        return VStack(spacing: gap) {
+        VStack(spacing: gap) {
+            ScrollView { narrowKeyGrid(rows.flatMap { $0 }) }
             HStack(spacing: gap) {
-                symbolsButton
-                if !symbols { shiftButton }
+                layerModifier(inlineEditing: true).frame(width: 44, height: 44)
+                Spacer(minLength: 0)
+                deleteButton.frame(width: 44, height: 44)
+            }
+            HStack(spacing: gap) {
+                symbolsButton.frame(width: 44)
                 spaceButton
+                returnButton.frame(width: 44)
             }
             .frame(height: 44)
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: gap) {
-                    ForEach(keys, id: \.self) { key in
-                        let text = shifted && !symbols ? key.uppercased() : key
-                        Button {
-                            Haptics.tap()
-                            typeCharacter(text)
-                        } label: {
-                            Text(text)
-                                .font(.system(size: 19, weight: .medium, design: .rounded))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
-                                .background(KeySurface(shape: keyShape))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
+        }
+    }
+
+    private func narrowKeyGrid(_ keys: [String]) -> some View {
+        let columns = [GridItem(.adaptive(minimum: 44), spacing: gap)]
+        return LazyVGrid(columns: columns, spacing: gap) {
+            ForEach(keys, id: \.self) { key in
+                let text = shifted && layer == .letters ? key.uppercased() : key
+                Button {
+                    Haptics.tap()
+                    typeCharacter(text)
+                } label: {
+                    Text(text)
+                        .font(.system(size: 19, weight: .medium, design: .rounded))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(KeySurface(shape: keyShape))
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -193,7 +309,7 @@ struct KeyboardPadView: View {
     private var controls: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 20) {
-                clearButton
+                KeyboardClearButton()
                     .frame(minWidth: 44)
                     .frame(height: 52)
                     .frame(maxWidth: .infinity, maxHeight: 114, alignment: .top)
@@ -209,18 +325,12 @@ struct KeyboardPadView: View {
             VStack(spacing: 8) {
                 DPadView().frame(width: 108, height: 108)
                 HStack(spacing: 6) {
-                    clearButton
+                    KeyboardClearButton()
                     deleteButton
                     returnButton
                 }
                 .frame(height: 44)
             }
-        }
-    }
-
-    private var clearButton: some View {
-        KeyCap(shape: keyShape, accessibilityLabel: "Clear") { model.typeClear() } label: {
-            Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
         }
     }
 
@@ -252,7 +362,7 @@ struct KeyboardPadView: View {
 
     private func characters(_ row: [String], width: CGFloat) -> some View {
         ForEach(row, id: \.self) { c in
-            let text = shifted && !symbols ? c.uppercased() : c
+            let text = shifted && layer == .letters ? c.uppercased() : c
             KeyCap(shape: keyShape, accessibilityLabel: text) {
                 typeCharacter(text)
             } label: {
@@ -274,10 +384,24 @@ struct KeyboardPadView: View {
     }
 
     private var symbolsButton: some View {
-        KeyCap(shape: keyShape, accessibilityLabel: symbols ? "Letters" : "Numbers and symbols") {
-            symbols.toggle()
+        KeyCap(shape: keyShape, accessibilityLabel: layer == .letters ? "Numbers and symbols" : "Letters") {
+            layer = layer == .letters ? .numbers : .letters
         } label: {
-            Text(symbols ? "ABC" : "123").font(.system(size: 15, weight: .semibold, design: .rounded))
+            Text(layer == .letters ? "123" : "ABC").font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+    }
+
+    @ViewBuilder private func layerModifier(inlineEditing: Bool) -> some View {
+        if layer == .letters {
+            shiftButton
+        } else if inlineEditing {
+            KeyCap(shape: keyShape, accessibilityLabel: layer == .numbers ? "More symbols" : "Numbers and punctuation") {
+                layer = layer == .numbers ? .symbols : .numbers
+            } label: {
+                Text(layer == .numbers ? "#+=" : "123").font(.system(size: 15, weight: .semibold, design: .rounded))
+            }
+        } else {
+            Color.clear
         }
     }
 
@@ -285,6 +409,33 @@ struct KeyboardPadView: View {
         KeyCap(shape: keyShape, accessibilityLabel: "Space") { model.type(" ") } label: {
             Text("space").font(.system(size: 15, weight: .medium, design: .rounded)).foregroundStyle(Theme.secondary)
         }
+    }
+}
+
+private struct KeyboardClearButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        KeyCap(shape: RoundedRectangle(cornerRadius: 8, style: .continuous), accessibilityLabel: "Clear") {
+            model.typeClear()
+        } label: {
+            Text("Clear").font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+    }
+}
+
+struct TabletKeyboardNavigation: View {
+    private static let padSize: CGFloat = 150
+    private static let spacing: CGFloat = 10
+    private static let clearHeight: CGFloat = 48
+    static let height = padSize + spacing + clearHeight
+
+    var body: some View {
+        VStack(spacing: Self.spacing) {
+            DPadView().frame(width: Self.padSize, height: Self.padSize)
+            KeyboardClearButton().frame(width: 64, height: Self.clearHeight)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
